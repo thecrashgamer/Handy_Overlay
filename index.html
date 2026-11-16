@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Python-Werkstatt</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <a href="#" id="logo">🐍 Python-Werkstatt</a>
+    <span id="status">Python wird geladen …</span>
+  </header>
+
+  <main id="home" class="view">
+    <section class="hero">
+      <h1>Lerne Python, indem du baust.</h1>
+      <p>Wähle ein kleines Projekt, probiere den Code aus, ändere ihn und mach etwas Eigenes daraus. Alles läuft direkt in deinem Browser.</p>
+      <div class="hero-actions">
+        <button id="open-sandbox" class="primary">🧪 Freie Sandkiste</button>
+        <span id="overall"></span>
+      </div>
+    </section>
+    <section id="cards" class="cards"></section>
+  </main>
+
+  <main id="workshop" class="view hidden">
+    <aside id="lesson">
+      <button id="back" class="link">← Alle Projekte</button>
+      <h2 id="p-title"></h2>
+      <p id="p-summary" class="muted"></p>
+      <nav id="steps"></nav>
+      <article id="step-body"></article>
+      <details id="ideas-box">
+        <summary>💡 Bastel-Ideen</summary>
+        <ul id="ideas"></ul>
+      </details>
+    </aside>
+
+    <section id="editor-pane">
+      <div class="toolbar">
+        <button id="run" class="primary" disabled>▶ Ausführen <kbd>Strg+Enter</kbd></button>
+        <button id="hint">🔎 Tipp</button>
+        <button id="reset">↺ Zurücksetzen</button>
+        <button id="done" class="ok">✓ Schritt geschafft</button>
+      </div>
+      <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+      <div id="hint-box" class="hidden"></div>
+      <div class="out-head"><span>Ausgabe</span><button id="clear" class="link">leeren</button></div>
+      <pre id="output"></pre>
+    </section>
+  </main>
+
+  <script src="lessons.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
