@@ -10,46 +10,106 @@
   body { margin: 0; height: 100vh; background: #121212; color: #fff;
          font-family: -apple-system, sans-serif; display: flex; flex-direction: column;
          align-items: center; justify-content: center; text-align: center; }
-  #status { color: #1db954; font-size: 14px; margin-bottom: 16px; }
+  #claude { position: fixed; top: 0; left: 0; right: 0; padding: 28px 12px 10px;
+            font-size: 16px; font-weight: bold; display: none; }
+  #claude.arbeitet { display: block; background: #f5a623; color: #000; }
+  #claude.fertig { display: block; background: #1db954; color: #000; }
+  #claude.wartet { display: block; background: #3b82f6; color: #fff; }
+  #status { color: #1db954; font-size: 14px; margin-bottom: 12px; }
+  #cover { width: 200px; height: 200px; border-radius: 8px; object-fit: cover;
+           margin-bottom: 16px; display: none; }
   #titel { font-size: 24px; font-weight: bold; padding: 0 20px; }
-  #kuenstler { font-size: 18px; color: #b3b3b3; margin-top: 6px; }
-  .tasten { display: flex; gap: 24px; margin-top: 40px; align-items: center; }
+  #kuenstler { font-size: 18px; color: #b3b3b3; margin-top: 6px; min-height: 22px; }
+  .tasten { display: flex; gap: 24px; margin-top: 28px; align-items: center; }
   button { width: 80px; height: 80px; border-radius: 50%; border: none;
            background: #282828; color: #fff; font-size: 30px; }
   button:active { background: #1db954; }
   #play { width: 100px; height: 100px; background: #1db954; }
+  #lautreihe { display: none; align-items: center; gap: 12px; margin-top: 32px; width: 260px; }
+  #laut { flex: 1; accent-color: #1db954; }
 </style>
 </head>
 <body>
+  <div id="claude"></div>
   <div id="status">Verbinde ...</div>
+  <img id="cover" alt="">
   <div id="titel">-</div>
   <div id="kuenstler"></div>
   <div class="tasten">
-    <button onclick="senden('zurueck')">&#9198;</button>
+    <button id="zurueck" onclick="senden('zurueck')">&#9198;</button>
     <button id="play" onclick="senden('playpause')">&#9654;</button>
-    <button onclick="senden('weiter')">&#9197;</button>
+    <button id="weiter" onclick="senden('weiter')">&#9197;</button>
+  </div>
+  <div id="lautreihe">
+    <span>&#128265;</span>
+    <input id="laut" type="range" min="0" max="100" step="1">
+    <span>&#128266;</span>
   </div>
 <script>
   var ws;
+  var letzteEingabe = 0;
+  var letztesSenden = 0;
+  var CLAUDE_TEXT = { arbeitet: "Claude arbeitet ...", fertig: "Claude ist fertig", wartet: "Claude braucht dich" };
+
+  function el(id) { return document.getElementById(id); }
+
   function verbinden() {
     ws = new WebSocket("ws://" + location.host + "/ws");
     ws.onopen = function () {
-      document.getElementById("status").textContent = "Verbunden";
+      el("status").textContent = "Verbunden";
     };
     ws.onmessage = function (e) {
       var d = JSON.parse(e.data);
-      document.getElementById("titel").textContent = d.titel || "-";
-      document.getElementById("kuenstler").textContent = d.kuenstler || "";
-      document.getElementById("play").innerHTML = d.spielt ? "&#9208;" : "&#9654;";
+      el("titel").textContent = d.titel || "-";
+      el("kuenstler").textContent = d.kuenstler || "";
+      el("play").innerHTML = d.spielt ? "&#9208;" : "&#9654;";
+
+      var cover = el("cover");
+      if (d.cover) {
+        var neu = "/cover?id=" + d.cover;
+        if (cover.getAttribute("src") !== neu) cover.src = neu;
+        cover.style.display = "block";
+      } else {
+        cover.style.display = "none";
+        cover.removeAttribute("src");
+      }
+
+      var reihe = el("lautreihe");
+      if (d.laut === null || d.laut === undefined) {
+        reihe.style.display = "none";
+      } else {
+        reihe.style.display = "flex";
+        // Eigene Eingabe nicht sofort ueberschreiben
+        if (Date.now() - letzteEingabe > 1500) el("laut").value = d.laut;
+      }
+
+      var c = d.claude || {};
+      var banner = el("claude");
+      banner.className = c.status || "";
+      banner.textContent = c.status ? (c.text || CLAUDE_TEXT[c.status] || c.status) : "";
     };
     ws.onclose = function () {
-      document.getElementById("status").textContent = "Warte auf PC ...";
+      el("status").textContent = "Warte auf PC ...";
       setTimeout(verbinden, 3000);
     };
   }
+
   function senden(befehl) {
     if (ws && ws.readyState === 1) ws.send(befehl);
   }
+
+  el("laut").addEventListener("input", function () {
+    letzteEingabe = Date.now();
+    if (letzteEingabe - letztesSenden > 100) {  // nicht bei jedem Pixel senden
+      letztesSenden = letzteEingabe;
+      senden("laut:" + this.value);
+    }
+  });
+  el("laut").addEventListener("change", function () {
+    letzteEingabe = Date.now();
+    senden("laut:" + this.value);  // Endwert immer senden
+  });
+
   verbinden();
 </script>
 </body>

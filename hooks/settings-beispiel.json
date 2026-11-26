@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py arbeitet" } ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py wartet" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py fertig" } ] }
+    ]
+  }
+}
