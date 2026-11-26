@@ -16,7 +16,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   });
   await wait(2000);
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 375, height: 667 }, deviceScaleFactor: 1 });
+  const page = await browser.newPage({ viewport: { width: 667, height: 375 }, deviceScaleFactor: 1 });
   const text = (sel) => page.textContent(sel);
   const ok = (name) => console.log('ok  -', name);
   try {
