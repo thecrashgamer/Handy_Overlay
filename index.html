@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Phonebox</title>
+<style>
+  body { margin: 0; height: 100vh; background: #121212; color: #fff;
+         font-family: -apple-system, sans-serif; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; text-align: center; }
+  #status { color: #1db954; font-size: 14px; margin-bottom: 16px; }
+  #titel { font-size: 24px; font-weight: bold; padding: 0 20px; }
+  #kuenstler { font-size: 18px; color: #b3b3b3; margin-top: 6px; }
+  .tasten { display: flex; gap: 24px; margin-top: 40px; align-items: center; }
+  button { width: 80px; height: 80px; border-radius: 50%; border: none;
+           background: #282828; color: #fff; font-size: 30px; }
+  button:active { background: #1db954; }
+  #play { width: 100px; height: 100px; background: #1db954; }
+</style>
+</head>
+<body>
+  <div id="status">Verbinde ...</div>
+  <div id="titel">-</div>
+  <div id="kuenstler"></div>
+  <div class="tasten">
+    <button onclick="senden('zurueck')">&#9198;</button>
+    <button id="play" onclick="senden('playpause')">&#9654;</button>
+    <button onclick="senden('weiter')">&#9197;</button>
+  </div>
+<script>
+  var ws;
+  function verbinden() {
+    ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onopen = function () {
+      document.getElementById("status").textContent = "Verbunden";
+    };
+    ws.onmessage = function (e) {
+      var d = JSON.parse(e.data);
+      document.getElementById("titel").textContent = d.titel || "-";
+      document.getElementById("kuenstler").textContent = d.kuenstler || "";
+      document.getElementById("play").innerHTML = d.spielt ? "&#9208;" : "&#9654;";
+    };
+    ws.onclose = function () {
+      document.getElementById("status").textContent = "Warte auf PC ...";
+      setTimeout(verbinden, 3000);
+    };
+  }
+  function senden(befehl) {
+    if (ws && ws.readyState === 1) ws.send(befehl);
+  }
+  verbinden();
+</script>
+</body>
+</html>
