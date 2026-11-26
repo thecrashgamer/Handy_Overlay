@@ -1,0 +1,8 @@
+[
+  { "name": "Rechner",      "icon": "🧮", "programm": "calc.exe" },
+  { "name": "Explorer",     "icon": "📁", "programm": "explorer.exe" },
+  { "name": "Task-Manager", "icon": "📊", "tasten": "ctrl+shift+esc" },
+  { "name": "Desktop",      "icon": "🖥️", "tasten": "win+d" },
+  { "name": "Screenshot",   "icon": "📸", "tasten": "win+shift+s" },
+  { "name": "Sperren",      "icon": "🔒", "tasten": "win+l" }
+]

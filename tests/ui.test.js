@@ -61,6 +61,27 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
     await page.screenshot({ path: process.env.SHOT || 'phonebox.png' });
 
+    // Extras-Ansicht
+    await page.click('#wechsel');
+    assert.ok(await page.isVisible('#extras'));
+    assert.ok(!(await page.isVisible('#titel')));
+    assert.match(await text('#uhr'), /^\d\d:\d\d$/);
+    await page.waitForFunction(() => /^CPU \d+ %$/.test(document.getElementById('cputext').textContent));
+    await page.waitForFunction(() => /^RAM \d+ %$/.test(document.getElementById('ramtext').textContent));
+    ok('Extras: Uhr, CPU und RAM');
+    const kacheln = await page.locator('.kachel').count();
+    assert.ok(kacheln >= 1, 'keine Shortcut-Kacheln');
+    const erster = (await page.locator('.kachel span').nth(1).textContent());
+    await page.locator('.kachel').first().click();
+    await page.waitForFunction((n) => document.getElementById('hinweis').textContent === n + ' ausgelöst', erster);
+    ok('Shortcut "' + erster + '" wird ausgeloest und bestaetigt');
+    await page.screenshot({ path: (process.env.SHOT || 'phonebox.png').replace('.png', '-extras.png') });
+    await page.reload();
+    assert.ok(await page.isVisible('#extras'), 'Ansicht wird nicht gemerkt');
+    ok('Ansicht wird nach dem Neuladen gemerkt');
+    await page.click('#wechsel');
+    assert.ok(await page.isVisible('#titel'));
+
     server.kill();
     await page.waitForFunction(() => document.getElementById('status').textContent === 'Warte auf PC ...');
     ok('zeigt "Warte auf PC" bei ausgeschaltetem Server');

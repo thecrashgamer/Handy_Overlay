@@ -30,6 +30,30 @@
   #play { width: 84px; height: 84px; background: #1db954; }
   #lautreihe { display: none; align-items: center; gap: 12px; margin-top: 20px; width: 280px; }
   #laut { flex: 1; accent-color: #1db954; }
+  /* Extras: Uhr, Systemanzeige, Shortcut-Tasten */
+  #extras { display: none; flex: 1; min-height: 0; align-items: center; justify-content: center;
+            gap: 28px; padding: 8px 20px; }
+  body.extras #inhalt { display: none; }
+  body.extras #extras { display: flex; }
+  #system { width: 220px; }
+  #uhr { font-size: 56px; font-weight: bold; line-height: 1; }
+  #datum { color: #b3b3b3; margin: 6px 0 16px; font-size: 16px; }
+  .messung { text-align: left; margin-top: 10px; font-size: 14px; color: #b3b3b3; }
+  .balken { height: 10px; background: #282828; border-radius: 5px; margin-top: 4px; overflow: hidden; }
+  .fuell { height: 100%; width: 0; background: #1db954; }
+  .fuell.hoch { background: #f5a623; }
+  #sc { display: grid; grid-template-columns: repeat(3, 92px); gap: 12px;
+        max-height: 100%; overflow-y: auto; padding: 2px; }
+  .kachel { width: 92px; height: 80px; border-radius: 14px; font-size: 13px; padding: 4px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+  .kachel .symbol { font-size: 26px; line-height: 1; }
+  #keine { color: #b3b3b3; max-width: 280px; }
+  #wechsel { position: fixed; right: 10px; bottom: 10px; width: 44px; height: 44px;
+             font-size: 20px; background: rgba(40, 40, 40, .9); }
+  #hinweis { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+             background: #1db954; color: #000; font-weight: bold; padding: 8px 16px;
+             border-radius: 20px; display: none; }
+  #hinweis.fehler { background: #e5484d; color: #fff; }
   /* Hochformat: alles untereinander */
   @media (orientation: portrait) {
     #inhalt { flex-direction: column; gap: 16px; }
@@ -38,6 +62,8 @@
     #play { width: 100px; height: 100px; }
     .tasten { gap: 24px; margin-top: 24px; }
     #lautreihe { margin-top: 28px; }
+    #extras { flex-direction: column; gap: 20px; }
+    #system { text-align: center; }
   }
 </style>
 </head>
@@ -61,10 +87,24 @@
       </div>
     </div>
   </div>
+  <div id="extras">
+    <div id="system">
+      <div id="uhr">--:--</div>
+      <div id="datum"></div>
+      <div class="messung"><span id="cputext">CPU</span><div class="balken"><div class="fuell" id="cpu"></div></div></div>
+      <div class="messung"><span id="ramtext">RAM</span><div class="balken"><div class="fuell" id="ram"></div></div></div>
+    </div>
+    <div id="sc"></div>
+  </div>
+  <button id="wechsel" onclick="ansichtWechseln()">&#9638;</button>
+  <div id="hinweis"></div>
 <script>
   var ws;
   var letzteEingabe = 0;
   var letztesSenden = 0;
+  var scStand = "";
+  var letzteShortcutNr = null;
+  var hinweisTimer;
   var CLAUDE_TEXT = { arbeitet: "Claude arbeitet ...", fertig: "Claude ist fertig", wartet: "Claude braucht dich" };
 
   function el(id) { return document.getElementById(id); }
@@ -99,6 +139,8 @@
         if (Date.now() - letzteEingabe > 1500) el("laut").value = d.laut;
       }
 
+      extrasZeigen(d);
+
       var c = d.claude || {};
       var banner = el("claude");
       banner.className = c.status || "";
@@ -108,6 +150,73 @@
       el("status").textContent = "Warte auf PC ...";
       setTimeout(verbinden, 3000);
     };
+  }
+
+  function extrasZeigen(d) {
+    var sys = d.system || {};
+    if (typeof sys.cpu === "number") {
+      el("cputext").textContent = "CPU " + sys.cpu + " %";
+      el("cpu").style.width = sys.cpu + "%";
+      el("cpu").className = "fuell" + (sys.cpu > 85 ? " hoch" : "");
+      el("ramtext").textContent = "RAM " + sys.ram + " %";
+      el("ram").style.width = sys.ram + "%";
+      el("ram").className = "fuell" + (sys.ram > 85 ? " hoch" : "");
+    }
+
+    var liste = d.shortcuts || [];
+    var stand = JSON.stringify(liste);
+    if (stand !== scStand) {  // Kacheln nur neu bauen, wenn sich die Liste aendert
+      scStand = stand;
+      var feld = el("sc");
+      feld.textContent = "";
+      if (liste.length === 0) {
+        var leer = document.createElement("div");
+        leer.id = "keine";
+        leer.textContent = "Keine Shortcuts. Trage welche in shortcuts.json am PC ein.";
+        feld.appendChild(leer);
+      }
+      liste.forEach(function (eintrag, i) {
+        var b = document.createElement("button");
+        b.className = "kachel";
+        var symbol = document.createElement("span");
+        symbol.className = "symbol";
+        symbol.textContent = eintrag.icon || "\u25B6";
+        var name = document.createElement("span");
+        name.textContent = eintrag.name;
+        b.appendChild(symbol);
+        b.appendChild(name);
+        b.onclick = function () { senden("shortcut:" + i); };
+        feld.appendChild(b);
+      });
+    }
+
+    var sc = d.shortcut || {};
+    if (letzteShortcutNr !== null && sc.nr !== letzteShortcutNr && sc.name) {
+      hinweisZeigen(sc.ok ? sc.name + " ausgel\u00F6st" : sc.name + " hat nicht geklappt", !sc.ok);
+    }
+    letzteShortcutNr = sc.nr;
+  }
+
+  function hinweisZeigen(text, fehler) {
+    var h = el("hinweis");
+    h.textContent = text;
+    h.className = fehler ? "fehler" : "";
+    h.style.display = "block";
+    clearTimeout(hinweisTimer);
+    hinweisTimer = setTimeout(function () { h.style.display = "none"; }, 2000);
+  }
+
+  function uhrAktualisieren() {
+    var jetzt = new Date();
+    el("uhr").textContent = jetzt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    el("datum").textContent = jetzt.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+  }
+
+  function ansichtWechseln() {
+    var extras = !document.body.classList.contains("extras");
+    document.body.classList.toggle("extras", extras);
+    el("wechsel").innerHTML = extras ? "&#9835;" : "&#9638;";
+    try { localStorage.setItem("phonebox-ansicht", extras ? "extras" : "musik"); } catch (e) {}
   }
 
   function senden(befehl) {
@@ -126,6 +235,9 @@
     senden("laut:" + this.value);  // Endwert immer senden
   });
 
+  try { if (localStorage.getItem("phonebox-ansicht") === "extras") ansichtWechseln(); } catch (e) {}
+  uhrAktualisieren();
+  setInterval(uhrAktualisieren, 1000);
   verbinden();
 </script>
 </body>
