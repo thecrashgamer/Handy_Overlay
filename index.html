@@ -165,7 +165,7 @@
   </div>
 <script>
   var ws;
-  var SEITE = "v10";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v11";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -184,6 +184,7 @@
     };
     ws.onmessage = function (e) {
       var d = JSON.parse(e.data);
+      if (d.fehler) { hinweisZeigen("Server-Fehler: " + d.fehler, true); return; }
       el("status").textContent = "Verbunden" + (d.version ? " \u00B7 " + d.version : "");
       if (d.version && d.version.split(" ")[0] !== SEITE) {
         // Seite und Server passen nicht zusammen: einmal frisch laden
@@ -262,6 +263,7 @@
         b.appendChild(name);
         b.onclick = function () {
           if (!ws || ws.readyState !== 1) { hinweisZeigen("Keine Verbindung zum PC", true); return; }
+          hinweisZeigen(eintrag.name + " ...", false);  // sofortige Rueckmeldung: der Tipp ist angekommen
           senden("shortcut:" + i);
         };
         feld.appendChild(b);

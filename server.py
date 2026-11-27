@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import time
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v10 (Auto-Aktualisierung)"
+VERSION = "v11 (Fehleranzeige)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
@@ -247,6 +248,25 @@ async def claude_status(meldung: ClaudeMeldung):
     return {"ok": True}
 
 
+async def befehl_bearbeiten(befehl):
+    if TEST and befehl == "fehlertest":  # prueft im Test, dass Fehler auf dem iPhone ankommen
+        raise RuntimeError("Testfehler")
+    if befehl.startswith("shortcut:"):
+        await shortcut_anfragen(befehl)
+    elif befehl.startswith("bestaetigt:"):
+        await shortcut_bestaetigt(befehl)
+    elif befehl == "abbruch":
+        zustand["rueckfrage"] = None
+        await an_alle_senden()
+    else:
+        try:
+            await asyncio.wait_for(medien.befehl(befehl), timeout=5)
+        except Exception as fehler:
+            log("Befehl fehlgeschlagen:", befehl, repr(fehler))
+        await asyncio.sleep(0.3)  # Spotify kurz Zeit geben, dann sofort aktualisieren
+        await aktualisieren()
+
+
 @app.websocket("/ws")
 async def verbindung(websocket: WebSocket):
     await websocket.accept()
@@ -256,25 +276,14 @@ async def verbindung(websocket: WebSocket):
     try:
         while True:
             befehl = await websocket.receive_text()
-            if befehl.startswith("shortcut:"):
-                await shortcut_anfragen(befehl)
-                continue
-            if befehl.startswith("bestaetigt:"):
-                await shortcut_bestaetigt(befehl)
-                continue
-            if befehl == "abbruch":
-                zustand["rueckfrage"] = None
-                await an_alle_senden()
-                continue
+            if not befehl.startswith(("laut:", "suche:")):  # nicht bei jedem Reglerschritt
+                log("Befehl:", befehl)
             try:
-                await asyncio.wait_for(medien.befehl(befehl), timeout=5)
+                await befehl_bearbeiten(befehl)
             except Exception as fehler:
-                log("Befehl fehlgeschlagen:", befehl, repr(fehler))
-            await asyncio.sleep(0.3)  # Spotify kurz Zeit geben, dann sofort aktualisieren
-            try:
-                await aktualisieren()
-            except Exception as fehler:
-                log("Aktualisieren fehlgeschlagen:", repr(fehler))
+                # Fehler nie verschlucken: ins Protokoll und als rote Meldung aufs iPhone
+                log("FEHLER bei", befehl, "\n" + traceback.format_exc())
+                await websocket.send_text(json.dumps({"fehler": f"{type(fehler).__name__}: {fehler}"}))
     except (WebSocketDisconnect, WebSocketDisconnected):
         pass  # iPhone hat die Verbindung geschlossen (z. B. Seite neu geladen)
     finally:

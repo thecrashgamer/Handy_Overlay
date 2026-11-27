@@ -134,17 +134,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // Herunterfahren: erst nach Rueckfrage, und der Server prueft selbst
     const aus = page.locator('.kachel', { hasText: 'Herunterfahren' }).first();
     await page.waitForSelector('#hinweis', { state: 'hidden' });  // Meldung der Kachel davor abwarten
+    const ausgeloest = async () => /ausgelöst|fährt|Fehler/.test(await page.evaluate(() =>
+      document.getElementById('hinweis').style.display === 'none' ? '' : document.getElementById('hinweis').textContent));
     await aus.click();
     await page.waitForSelector('#rueckfrage', { state: 'visible' });
     assert.strictEqual(await text('#rf-frage'), 'PC wirklich herunterfahren?');
-    assert.ok(!(await page.isVisible('#hinweis')), 'darf noch nicht ausgeloest sein');
+    assert.ok(!(await ausgeloest()), 'darf noch nicht ausgeloest sein');
     await page.click('#rf-nein');
     await wait(500);
-    assert.ok(!(await page.isVisible('#rueckfrage')) && !(await page.isVisible('#hinweis')));
+    assert.ok(!(await page.isVisible('#rueckfrage')) && !(await ausgeloest()));
     ok('Herunterfahren: Abbrechen loest nichts aus');
     await page.evaluate(() => ws.send('bestaetigt:6'));  // Bestaetigung ohne Rueckfrage
     await wait(700);
-    assert.ok(!(await page.isVisible('#hinweis')), 'Server hat unaufgeforderte Bestaetigung angenommen');
+    assert.ok(!(await ausgeloest()), 'Server hat unaufgeforderte Bestaetigung angenommen');
     ok('Herunterfahren: Bestaetigung ohne Rueckfrage wird vom Server abgelehnt');
     await aus.click();
     await page.waitForSelector('#rueckfrage', { state: 'visible' });
@@ -152,7 +154,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert.ok(!(await page.isVisible('#rueckfrage')), 'Rueckfrage laeuft nicht ab');
     await page.evaluate(() => ws.send('bestaetigt:6'));
     await wait(700);
-    assert.ok(!(await page.isVisible('#hinweis')), 'abgelaufene Bestaetigung angenommen');
+    assert.ok(!(await ausgeloest()), 'abgelaufene Bestaetigung angenommen');
     ok('Herunterfahren: Rueckfrage laeuft ab, danach ist Bestaetigen wirkungslos');
     await aus.click();
     await page.waitForSelector('#rueckfrage', { state: 'visible' });
@@ -160,6 +162,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.click('#rf-ja');
     await page.waitForFunction(() => document.getElementById('hinweis').textContent.includes('herunter'));
     ok('Herunterfahren: nach "Ja" wird es ausgeloest und gemeldet');
+
+    // Serverfehler erscheinen auf der Seite und der Server laeuft weiter
+    await page.evaluate(() => ws.send('fehlertest'));
+    await page.waitForFunction(() => document.getElementById('hinweis').textContent.includes('Testfehler'));
+    ok('Serverfehler erscheint als rote Meldung');
     await page.reload();
     assert.ok(await page.isVisible('#extras'), 'Ansicht wird nicht gemerkt');
     ok('Ansicht wird nach dem Neuladen gemerkt');
