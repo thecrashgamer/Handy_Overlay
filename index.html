@@ -54,6 +54,9 @@
   #keine { color: #b3b3b3; max-width: 280px; }
   #wechsel { position: fixed; right: 10px; bottom: 10px; width: 44px; height: 44px;
              font-size: 20px; background: rgba(40, 40, 40, .9); }
+  #konto { position: fixed; left: 10px; bottom: 10px; width: 44px; height: 44px; border-radius: 50%;
+           font-size: 20px; background: rgba(40, 40, 40, .9); color: #fff; text-decoration: none;
+           display: flex; align-items: center; justify-content: center; }
   #hinweis { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
              background: #1db954; color: #000; font-weight: bold; padding: 8px 16px;
              border-radius: 20px; display: none; }
@@ -157,6 +160,7 @@
     </div>
     <ul id="cl-verlauf"></ul>
   </div>
+  <a id="konto" href="/konto" title="Konto">&#128100;</a>
   <button id="wechsel" onclick="ansichtWechseln()">&#9638;</button>
   <div id="hinweis"></div>
   <div id="jsfehler" onclick="this.style.display='none'"></div>
@@ -200,7 +204,7 @@
   }
 
   var ws;
-  var SEITE = "v13";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v14";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -211,6 +215,15 @@
   var CLAUDE_TEXT = { arbeitet: "Claude arbeitet ...", fertig: "Claude ist fertig", wartet: "Claude braucht dich" };
 
   function el(id) { return document.getElementById(id); }
+
+  function anmeldungPruefen() {
+    fetch("/api/ich", { credentials: "same-origin" }).then(function (r) {
+      if (r.status === 401) { location.href = "/anmelden"; return null; }
+      return r.ok ? r.json() : null;
+    }).then(function (j) {
+      if (j && j.name) el("konto").title = "Konto: " + j.name;
+    }).catch(function () {});  // Server nicht erreichbar: nichts tun, es wird neu verbunden
+  }
 
   function verbinden() {
     // Die Seite nennt dem Server ihre Version, damit er eine alte Seite im Protokoll meldet
@@ -244,6 +257,7 @@
     };
     ws.onclose = function () {
       el("status").textContent = "Warte auf PC ...";
+      anmeldungPruefen();  // abgelaufene Sitzung: zur Anmeldung statt endlos neu zu verbinden
       setTimeout(verbinden, 3000);
     };
   }
@@ -508,6 +522,7 @@
   setInterval(zeitAnzeigen, 250);
   setInterval(claudeZeitAnzeigen, 1000);
   setInterval(rueckfrageZeit, 500);
+  anmeldungPruefen();
   verbinden();
 </script>
 </body>

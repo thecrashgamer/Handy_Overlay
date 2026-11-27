@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Phonebox – Konto</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #121212; color: #fff; font-family: -apple-system, "Segoe UI", sans-serif;
+         padding: 16px; padding-top: max(16px, env(safe-area-inset-top)); }
+  .seite { max-width: 560px; margin: 0 auto; }
+  .kopf { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  a.zurueck { color: #1db954; text-decoration: none; font-size: 15px; }
+  .karte { background: #1c1c1c; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .rolle { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #282828; color: #b3b3b3; margin-left: 6px; }
+  label { display: block; font-size: 13px; color: #b3b3b3; margin: 10px 0 4px; }
+  input[type=password], select { width: 100%; padding: 11px; font-size: 16px; border-radius: 8px;
+         border: 1px solid #333; background: #121212; color: #fff; }
+  button { font-size: 15px; }
+  .knopf { margin-top: 12px; padding: 11px 16px; border: none; border-radius: 9px; background: #1db954; color: #000; font-weight: bold; }
+  .knopf.zweit { background: #333; color: #fff; }
+  .knopf.rot { background: #e5484d; color: #fff; }
+  .knopf:disabled { background: #2a2a2a; color: #777; }
+  .meldung { margin-top: 10px; padding: 9px 12px; border-radius: 8px; font-size: 14px; display: none; }
+  .meldung.fehler { display: block; background: #3b1517; color: #ff8a8f; }
+  .meldung.ok { display: block; background: #12301d; color: #7ee2a0; }
+  .hinweis { color: #8a8a8a; font-size: 13px; line-height: 1.4; }
+  .codes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0;
+           font-family: Consolas, Menlo, monospace; font-size: 14px; white-space: nowrap; }
+  .codes div { background: #121212; border-radius: 6px; padding: 8px 4px; text-align: center; user-select: all; }
+  .benutzer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0; border-top: 1px solid #2a2a2a; }
+  .benutzer:first-of-type { border-top: none; }
+  .benutzer .name { font-size: 15px; }
+  .benutzer .stand { font-size: 12px; color: #8a8a8a; }
+  .wartet { color: #f5a623 !important; }
+  .gesperrt { color: #e5484d !important; }
+  .aktionen { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .aktionen button { padding: 7px 10px; border: none; border-radius: 7px; background: #333; color: #fff; font-size: 13px; }
+  .aktionen button.gut { background: #1db954; color: #000; }
+  .aktionen button.rot { background: #5a1d20; color: #ff8a8f; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="seite">
+  <div class="kopf">
+    <h1 id="titel">Konto</h1>
+    <a class="zurueck" href="/">&larr; Zur Phonebox</a>
+  </div>
+
+  <div class="karte">
+    <h2>Angemeldet</h2>
+    <div><span id="name">...</span><span class="rolle" id="rolle"></span></div>
+    <button class="knopf zweit" onclick="abmelden()">Abmelden</button>
+  </div>
+
+  <div class="karte">
+    <h2>Passwort ändern</h2>
+    <form onsubmit="return pwAendern(event)">
+      <label for="p-alt">Aktuelles Passwort</label>
+      <input type="password" id="p-alt" autocomplete="current-password" required>
+      <label for="p-neu">Neues Passwort</label>
+      <input type="password" id="p-neu" autocomplete="new-password" required>
+      <label for="p-neu2">Neues Passwort wiederholen</label>
+      <input type="password" id="p-neu2" autocomplete="new-password" required>
+      <div class="hinweis" style="margin-top:6px">Alle anderen Geräte werden danach abgemeldet.</div>
+      <button class="knopf" type="submit">Passwort ändern</button>
+      <div class="meldung" id="m-pw"></div>
+    </form>
+  </div>
+
+  <div class="karte">
+    <h2>Wiederherstellungscodes</h2>
+    <div class="hinweis" id="codes-info"></div>
+    <form onsubmit="return codesNeu(event)">
+      <label for="c-pw">Zum Erzeugen neuer Codes: Passwort</label>
+      <input type="password" id="c-pw" autocomplete="current-password" required>
+      <button class="knopf zweit" type="submit">Neue Codes erzeugen</button>
+      <div class="hinweis" style="margin-top:6px">Die alten Codes werden dann ungültig.</div>
+    </form>
+    <div id="codes-neu" hidden>
+      <div class="codes" id="codes"></div>
+      <div class="hinweis">Sichere sie jetzt. Sie werden nur einmal angezeigt.</div>
+    </div>
+    <div class="meldung" id="m-codes"></div>
+  </div>
+
+  <div class="karte" id="admin" hidden>
+    <h2>Benutzer verwalten</h2>
+    <label for="registrierung">Neue Konten</label>
+    <select id="registrierung" onchange="modusSetzen()">
+      <option value="freigabe">Erlaubt, mit Freigabe</option>
+      <option value="offen">Erlaubt, sofort aktiv</option>
+      <option value="geschlossen">Gesperrt</option>
+    </select>
+    <div id="liste" style="margin-top:12px"></div>
+    <div class="meldung" id="m-admin"></div>
+  </div>
+</div>
+
+<script>
+  function el(id) { return document.getElementById(id); }
+
+  function meldung(id, text, art) {
+    var m = el(id);
+    m.textContent = text || "";
+    m.className = "meldung" + (text ? " " + art : "");
+  }
+
+  function anfrage(methode, url, daten) {
+    var optionen = { method: methode, credentials: "same-origin", headers: { "X-Phonebox": "1" } };
+    if (daten) { optionen.headers["Content-Type"] = "application/json"; optionen.body = JSON.stringify(daten); }
+    return fetch(url, optionen).then(function (r) {
+      if (r.status === 401) { location.href = "/anmelden"; throw new Error("Nicht angemeldet."); }
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.fehler || "Fehler " + r.status);
+        return j;
+      });
+    });
+  }
+
+  function laden() {
+    anfrage("GET", "/api/ich").then(function (ich) {
+      el("name").textContent = ich.name;
+      el("rolle").textContent = ich.rolle === "admin" ? "Administrator" : "Benutzer";
+      el("codes-info").textContent = ich.codes_uebrig + " von 8 Codes sind noch gültig." +
+        (ich.codes_uebrig <= 2 ? " Erzeuge bald neue." : "");
+      if (ich.rolle === "admin") { el("admin").hidden = false; benutzerLaden(); }
+    }).catch(function () {});
+  }
+
+  function abmelden() {
+    anfrage("POST", "/api/abmelden", {}).then(function () { location.href = "/anmelden"; });
+  }
+
+  function pwAendern(e) {
+    e.preventDefault();
+    if (el("p-neu").value !== el("p-neu2").value) { meldung("m-pw", "Die beiden neuen Passwörter sind nicht gleich.", "fehler"); return false; }
+    anfrage("POST", "/api/passwort-aendern", { altes: el("p-alt").value, neues: el("p-neu").value })
+      .then(function () {
+        meldung("m-pw", "Passwort geändert. Andere Geräte sind abgemeldet.", "ok");
+        el("p-alt").value = el("p-neu").value = el("p-neu2").value = "";
+      })
+      .catch(function (f) { meldung("m-pw", f.message, "fehler"); });
+    return false;
+  }
+
+  function codesNeu(e) {
+    e.preventDefault();
+    anfrage("POST", "/api/codes-neu", { passwort: el("c-pw").value })
+      .then(function (a) {
+        el("codes").innerHTML = "";
+        a.codes.forEach(function (c) { var d = document.createElement("div"); d.textContent = c; el("codes").appendChild(d); });
+        el("codes-neu").hidden = false;
+        el("c-pw").value = "";
+        meldung("m-codes", "Neue Codes erzeugt. Die alten sind ungültig.", "ok");
+        el("codes-info").textContent = "8 von 8 Codes sind gültig.";
+      })
+      .catch(function (f) { meldung("m-codes", f.message, "fehler"); });
+    return false;
+  }
+
+  function benutzerLaden() {
+    anfrage("GET", "/api/benutzer").then(function (a) {
+      el("registrierung").value = a.registrierung;
+      var liste = el("liste");
+      liste.textContent = "";
+      a.benutzer.forEach(function (b) {
+        var zeile = document.createElement("div");
+        zeile.className = "benutzer";
+        var links = document.createElement("div");
+        var name = document.createElement("div");
+        name.className = "name";
+        name.textContent = b.name + (b.id === a.ich ? " (du)" : "");
+        var stand = document.createElement("div");
+        stand.className = "stand " + (b.status === "aktiv" ? "" : b.status);
+        stand.textContent = (b.rolle === "admin" ? "Administrator" : "Benutzer") + " · " +
+          (b.status === "aktiv" ? "aktiv" : b.status === "wartet" ? "wartet auf Freigabe" : "gesperrt");
+        links.appendChild(name);
+        links.appendChild(stand);
+        var rechts = document.createElement("div");
+        rechts.className = "aktionen";
+        if (b.id !== a.ich) {
+          if (b.status !== "aktiv") knopf(rechts, b.status === "wartet" ? "Freigeben" : "Entsperren", "freigeben", b, "gut");
+          else knopf(rechts, "Sperren", "sperren", b);
+          if (b.status === "aktiv") knopf(rechts, b.rolle === "admin" ? "Kein Admin" : "Zum Admin", b.rolle === "admin" ? "benutzer" : "admin", b);
+          knopf(rechts, "Löschen", "loeschen", b, "rot");
+        }
+        zeile.appendChild(links);
+        zeile.appendChild(rechts);
+        liste.appendChild(zeile);
+      });
+    }).catch(function (f) { meldung("m-admin", f.message, "fehler"); });
+  }
+
+  function knopf(ziel, text, aktion, b, art) {
+    var k = document.createElement("button");
+    k.textContent = text;
+    if (art) k.className = art;
+    k.onclick = function () {
+      if (aktion === "loeschen" && !confirm("Konto „" + b.name + "“ wirklich löschen?")) return;
+      anfrage("POST", "/api/benutzer/aktion", { id: b.id, aktion: aktion })
+        .then(function () { meldung("m-admin", ""); benutzerLaden(); })
+        .catch(function (f) { meldung("m-admin", f.message, "fehler"); });
+    };
+    ziel.appendChild(k);
+  }
+
+  function modusSetzen() {
+    anfrage("POST", "/api/einstellungen", { registrierung: el("registrierung").value })
+      .then(function () { meldung("m-admin", "Gespeichert.", "ok"); })
+      .catch(function (f) { meldung("m-admin", f.message, "fehler"); });
+  }
+
+  laden();
+</script>
+</body>
+</html>

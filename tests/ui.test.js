@@ -3,20 +3,24 @@ const { chromium } = require('playwright');
 const { spawn } = require('child_process');
 const assert = require('assert');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 const PORT = 8123;
+const DATEN = fs.mkdtempSync(path.join(os.tmpdir(), 'phonebox-ui-'));  // frische, leere Konten
 const URL = `http://localhost:${PORT}`;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   const server = spawn('python3', ['server.py'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT), PHONEBOX_FRIST_S: '3' },
+    env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT), PHONEBOX_FRIST_S: '3', PHONEBOX_DATEN: DATEN },
     stdio: 'inherit',
   });
   await wait(2000);
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 667, height: 375 }, deviceScaleFactor: 1 });
+  const kontext = await browser.newContext({ viewport: { width: 667, height: 375 }, deviceScaleFactor: 1 });
+  const page = await kontext.newPage();
   const text = (sel) => page.textContent(sel);
   const ok = (name) => console.log('ok  -', name);
   const seitenFehler = [];  // JavaScript-Fehler der Seite: duerfen im normalen Ablauf nie auftreten
@@ -24,6 +28,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   page.on('console', (m) => { if (m.type() === 'error') seitenFehler.push(m.text()); });
   const log = async () => (await page.request.get(`${URL}/log`)).text();
   try {
+    // Ohne Anmeldung kommt man nicht auf die Seite; das erste Konto legt man am PC (localhost) an
+    const reg = await page.request.post(`${URL}/api/registrieren`, {
+      headers: { 'X-Phonebox': '1' }, data: { name: 'tester', passwort: 'Test-Passwort-77' } });
+    assert.ok(reg.ok(), 'Registrierung: ' + await reg.text());
     await page.goto(URL);
     await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('Verbunden'));
     await page.waitForFunction(() => document.getElementById('titel').textContent === 'Testlied Eins');
@@ -197,7 +205,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     };
     for (const viewport of [{ width: 667, height: 375 }, { width: 375, height: 667 }]) {
       for (const [name, form] of Object.entries(ECHT)) {
-        const p2 = await browser.newPage({ viewport });
+        const p2 = await kontext.newPage();  // gleiche Anmeldung wie die Hauptseite
+        await p2.setViewportSize(viewport);
         const fehler2 = [];
         p2.on('pageerror', (e) => fehler2.push(e.message));
         await p2.routeWebSocket(/\/ws(\?.*)?$/, (wsr) => {
@@ -248,7 +257,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
     const neu = spawn('python3', ['server.py'], {
       cwd: path.join(__dirname, '..'),
-      env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT), PHONEBOX_FRIST_S: '3' },
+      env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT), PHONEBOX_FRIST_S: '3', PHONEBOX_DATEN: DATEN },
       stdio: 'inherit',
     });
     await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('Verbunden'), null, { timeout: 15000 });

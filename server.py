@@ -9,26 +9,32 @@ from pathlib import Path
 
 import psutil
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketDisconnected
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
+import auth
 import medien as medien_modul
 import protokoll
 import seitencheck
 import shortcuts
+from konten import Konten
 from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v13 (Rueckfrage-Diagnose)"
+VERSION = "v14 (Konten)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
 SEITE_ERWARTET = VERSION.split(" ")[0]  # so muss SEITE in index.html heissen
+DATEN = Path(os.environ.get("PHONEBOX_DATEN", ORDNER / "daten"))  # hier liegen die Benutzerkonten
+konten = Konten(DATEN / "phonebox.db")
+auth.einrichten(konten, ORDNER)
 medien = medien_modul.erstellen(TEST)
 clients = set()
+ws_token = {}  # WebSocket -> Sitzungs-Schluessel, damit gesperrte oder abgemeldete Geraete getrennt werden
 seiten = {}  # WebSocket -> Version der Seite (aus ?seite=...), "" bei alten Seiten
 SHORTCUT_DATEI = ORDNER / "shortcuts.json"
 zustand = {
@@ -179,10 +185,28 @@ async def shortcut_ausfuehren(eintrag):
     await an_alle_senden()
 
 
+async def verbindungen_pruefen():
+    """Trennt Geraete, deren Sitzung beendet wurde (abgemeldet, gesperrt, Passwort geaendert)."""
+    for client, token in list(ws_token.items()):
+        if konten.sitzung_pruefen(token) is None:
+            ws_token.pop(client, None)
+            clients.discard(client)
+            try:
+                await client.close(code=1008)
+            except Exception:
+                pass
+
+
 async def schleife():
+    zaehler = 0
     while True:
         try:
             await aktualisieren()
+            zaehler += 1
+            if zaehler % 15 == 0:
+                await verbindungen_pruefen()
+            if zaehler % 3600 == 0:
+                konten.aufraeumen()
         except Exception as fehler:  # die Schleife darf nie sterben
             log("Aktualisieren fehlgeschlagen:", repr(fehler))
         await asyncio.sleep(1)
@@ -196,10 +220,19 @@ async def lebenszyklus(app):
 
 
 app = FastAPI(lifespan=lebenszyklus)
+app.include_router(auth.router)
+
+
+@app.middleware("http")
+async def herkunft_pruefen(request: Request, call_next):
+    abgelehnt = auth.pruefe_herkunft(request)
+    return abgelehnt if abgelehnt else await call_next(request)
 
 
 @app.get("/")
-async def startseite():
+async def startseite(request: Request):
+    if not auth.benutzer_aus(request.cookies):
+        return RedirectResponse("/anmelden", status_code=303)
     html = (ORDNER / "index.html").read_text(encoding="utf-8")
     text = seitencheck.warnung(html, VERSION)
     if text:  # eine alte index.html wird trotzdem ausgeliefert, aber mit roter Warnleiste
@@ -210,13 +243,20 @@ async def startseite():
 
 
 @app.get("/log")
-async def protokoll_zeigen():
-    """Die letzten Meldungen des Servers, zum Nachlesen im Browser."""
+async def protokoll_zeigen(request: Request):
+    """Die letzten Meldungen des Servers, zum Nachlesen im Browser (nur Administratoren)."""
+    b = auth.benutzer_aus(request.cookies)
+    if not b:
+        return RedirectResponse("/anmelden", status_code=303)
+    if b["rolle"] != "admin":
+        return PlainTextResponse("Das Protokoll darf nur ein Administrator sehen.", status_code=403)
     return PlainTextResponse("Phonebox " + VERSION + "\n\n" + "\n".join(protokoll.zeilen))
 
 
 @app.get("/cover")
-async def cover(id: str = ""):
+async def cover(request: Request, id: str = ""):
+    if not auth.benutzer_aus(request.cookies):
+        return Response(status_code=401)
     ergebnis = await medien.cover()
     if ergebnis is None:
         return Response(status_code=404)
@@ -233,8 +273,10 @@ class ClaudeMeldung(BaseModel):
 
 
 @app.post("/claude")
-async def claude_status(meldung: ClaudeMeldung):
-    """Wird von den Claude-Code-Hooks aufgerufen (siehe hooks/)."""
+async def claude_status(meldung: ClaudeMeldung, request: Request):
+    """Wird von den Claude-Code-Hooks aufgerufen (siehe hooks/). Nur vom PC selbst oder mit Anmeldung."""
+    if not (auth.lokal(request) or auth.benutzer_aus(request.cookies)):
+        return PlainTextResponse("Nicht erlaubt.", status_code=403)
     global claude_zuletzt
     c = zustand["claude"]
     jetzt = jetzt_ms()
@@ -284,7 +326,12 @@ async def befehl_bearbeiten(befehl):
 
 @app.websocket("/ws")
 async def verbindung(websocket: WebSocket):
+    token = websocket.cookies.get(auth.COOKIE)
+    if not auth.herkunft_passt(websocket.headers) or not konten.sitzung_pruefen(token):
+        await websocket.close(code=1008)  # nicht angemeldet oder fremde Webseite
+        return
     await websocket.accept()
+    ws_token[websocket] = token
     shortcuts_neu_laden()
     seite = websocket.query_params.get("seite", "")[:20]
     if seite != SEITE_ERWARTET:
@@ -310,9 +357,12 @@ async def verbindung(websocket: WebSocket):
     finally:
         clients.discard(websocket)
         seiten.pop(websocket, None)
+        ws_token.pop(websocket, None)
 
 
 if __name__ == "__main__":
     log(f"Phonebox-Server {VERSION} laeuft auf Port {PORT}" + (" (Testmodus)" if TEST else ""))
+    if konten.anzahl_benutzer() == 0:
+        log("Noch kein Konto: Oeffne am PC http://localhost:%d und lege das erste Konto an (es wird Administrator)." % PORT)
     # log_config=None, damit der Server auch ohne Konsolenfenster (pythonw) laeuft
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_config=None)
