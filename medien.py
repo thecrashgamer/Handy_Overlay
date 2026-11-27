@@ -81,6 +81,9 @@ class WindowsMedien:
     async def status(self):
         laut = self._laut_lesen()
         sitzung = await self._sitzung()
+        if not getattr(self, "_start_gemeldet", False):
+            self._start_gemeldet = True
+            print("Medien-Code mit Cover-Hintergrundladen aktiv")
         if sitzung is None:
             return {
                 "spielt": False,
@@ -94,6 +97,7 @@ class WindowsMedien:
 
         schluessel = (infos.title, infos.artist)
         if schluessel != self._cover_fuer:
+            print(f"Cover: neues Lied {schluessel[0]!r}, Thumbnail vorhanden: {infos.thumbnail is not None}")
             self._cover_fuer = schluessel
             self._cover = None
             self._cover_versuche = 0
@@ -109,6 +113,7 @@ class WindowsMedien:
             and (self._cover_task is None or self._cover_task.done())
         ):
             self._cover_versuche += 1
+            print(f"Cover: Versuch {self._cover_versuche} fuer {schluessel[0]!r}")
             self._cover_task = asyncio.create_task(self._cover_holen(schluessel, infos.thumbnail))
         self._cover_id = (
             hashlib.md5(repr(schluessel).encode()).hexdigest()[:8] if self._cover else ""
@@ -148,7 +153,12 @@ class WindowsMedien:
         except asyncio.TimeoutError:
             print("Cover: Zeitueberschreitung beim Lesen")
             return
-        if daten and schluessel == self._cover_fuer:
+        if not daten:
+            print("Cover: keine Daten erhalten")
+        elif schluessel != self._cover_fuer:
+            print("Cover: Lied hat inzwischen gewechselt, verworfen")
+        else:
+            print(f"Cover: {len(daten)} Bytes geladen")
             self._cover = daten
 
     async def _cover_laden(self, thumbnail):
