@@ -165,6 +165,7 @@
   </div>
 <script>
   var ws;
+  var SEITE = "v10";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -184,6 +185,13 @@
     ws.onmessage = function (e) {
       var d = JSON.parse(e.data);
       el("status").textContent = "Verbunden" + (d.version ? " \u00B7 " + d.version : "");
+      if (d.version && d.version.split(" ")[0] !== SEITE) {
+        // Seite und Server passen nicht zusammen: einmal frisch laden
+        var schon = false;
+        try { schon = sessionStorage.getItem("phonebox-neu") === d.version; sessionStorage.setItem("phonebox-neu", d.version); } catch (e) {}
+        if (!schon) { location.reload(); return; }
+        el("status").textContent = "Seite " + SEITE + " passt nicht zum Server " + d.version.split(" ")[0] + " \u2013 Seite neu laden";
+      }
       el("titel").textContent = d.titel || "-";
       el("kuenstler").textContent = d.kuenstler || "";
       el("play").innerHTML = d.spielt ? "&#9208;" : "&#9654;";
@@ -252,7 +260,10 @@
         name.textContent = eintrag.name;
         b.appendChild(symbol);
         b.appendChild(name);
-        b.onclick = function () { senden("shortcut:" + i); };
+        b.onclick = function () {
+          if (!ws || ws.readyState !== 1) { hinweisZeigen("Keine Verbindung zum PC", true); return; }
+          senden("shortcut:" + i);
+        };
         feld.appendChild(b);
       });
     }

@@ -20,7 +20,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v9 (Sperren, Herunterfahren)"
+VERSION = "v10 (Auto-Aktualisierung)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
@@ -191,7 +191,8 @@ app = FastAPI(lifespan=lebenszyklus)
 
 @app.get("/")
 async def startseite():
-    return FileResponse(ORDNER / "index.html")
+    # no-store: Safari darf die Seite nie aus dem Zwischenspeicher zeigen, sonst passen Seite und Server nicht zusammen
+    return FileResponse(ORDNER / "index.html", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/log")
