@@ -10,6 +10,19 @@ Am iPhone in Safari `https://<PC-IP>:8443` öffnen (die Adresse zeigt `start.bat
 
 Von Hand geht es auch: `pip install -r requirements.txt`, dann `python server.py`.
 
+## GPU und Akkus der Geräte
+
+Die Extras-Ansicht zeigt unter CPU und RAM auch die **GPU** (Auslastung, Name, Grafikspeicher, Temperatur) und die **Akkustände** verbundener Geräte (Headset, Maus, Tastatur, Controller und der Akku des PCs, falls er ein Laptop ist). Schwache Akkus (unter 20 %) sind rot, ein ladendes Gerät zeigt ⚡. Im Standby erscheint nur noch ein Hinweis, wenn ein Akku unter 15 % fällt und nicht lädt.
+
+Woher die Werte kommen (alles ohne zusätzliche Programme):
+- **GPU:** bei NVIDIA über `nvidia-smi` (genau, mit Grafikspeicher und Temperatur). Bei AMD und Intel über die Windows-Leistungsdaten (nur Auslastung und belegter Grafikspeicher).
+- **Bluetooth-Geräte** (Headset, Maus, Tastatur): über die Akkuanzeige, die Windows selbst für gekoppelte Geräte führt.
+- **Xbox-Controller:** über XInput. Windows liefert nur vier Stufen (Leer, Niedrig, Mittel, Voll), mit Kabel gibt es keinen Akkustand.
+
+**Grenzen:** Welche Geräte ihren Akkustand melden, entscheidet das Gerät. Funk-Geräte mit eigenem USB-Stick (Logitech, Razer, Corsair, SteelSeries) und PlayStation-Controller verraten ihn Windows meist nicht und erscheinen deshalb nicht. Dafür bräuchte es das Programm des Herstellers.
+
+**Fehlersuche:** `python geraete.py` im Phonebox-Ordner zeigt, was gefunden wurde, samt Rohdaten. Welche Geräte der Server erkannt hat, steht auch im Protokoll (`/log`, Zeile „Akku-Geraete“). Die GPU- und Akku-Abfragen laufen in eigenen Threads und bremsen sich selbst, wenn Windows langsam antwortet.
+
 ## Standby (dunkle Uhr)
 
 Wird die Phonebox eine Weile nicht benutzt, wird der Bildschirm schwarz und zeigt nur eine große Uhr mit Datum. Läuft Musik, siehst du darunter Cover, Titel und Künstler. Der Claude-Status bleibt als kleine Zeile sichtbar. Ein Tipp (oder eine Taste) weckt auf. Der erste Tipp löst nichts darunter aus. Eine Rückfrage (z. B. Herunterfahren) und „Claude braucht dich“ wecken automatisch auf, und während einer Rückfrage schläft sie nie ein. Der Mond-Knopf unten schickt sie sofort in den Standby.
@@ -110,6 +123,7 @@ node tests/https.test.js              # HTTPS-Test
 node tests/rechte.test.js             # Rechte und Aktivitätsprotokoll
 node tests/standby.test.js            # Standby-Modus
 node tests/icons.test.js              # Bilder als Symbole
+node tests/geraete.test.js            # GPU und Akkus
 node tests/adminupdate.test.js        # Update per Knopf (mit echtem Neustart, dauert etwas)
 # test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
@@ -125,6 +139,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `admin.py`, `admin.html` | Admin-Bereich für die Shortcuts |
 | `aktivitaet.html` | Aktivitätsprotokoll |
 | `icons.py` | Prüfung und Ablage der Symbolbilder |
+| `geraete.py` | GPU und Akkustände der Geräte |
 | `index.html` | Oberfläche fürs iPhone |
 | `zertifikate.py`, `zertifikat.html` | HTTPS: eigenes Zertifikat und Anleitung für das Handy |
 | `anmelden.html`, `konto.html` | Anmeldung, Konto und Benutzerverwaltung |
