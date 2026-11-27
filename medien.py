@@ -7,6 +7,8 @@ Oberflaeche auch ohne Windows und Spotify testen lassen (PHONEBOX_TEST=1).
 import asyncio
 import hashlib
 
+from protokoll import log
+
 
 def erstellen(test: bool):
     return TestMedien() if test else WindowsMedien()
@@ -83,7 +85,7 @@ class WindowsMedien:
         sitzung = await self._sitzung()
         if not getattr(self, "_start_gemeldet", False):
             self._start_gemeldet = True
-            print("Medien-Code mit Cover-Hintergrundladen aktiv")
+            log("Medien-Code mit Cover-Hintergrundladen aktiv")
         if sitzung is None:
             return {
                 "spielt": False,
@@ -97,7 +99,7 @@ class WindowsMedien:
 
         schluessel = (infos.title, infos.artist)
         if schluessel != self._cover_fuer:
-            print(f"Cover: neues Lied {schluessel[0]!r}, Thumbnail vorhanden: {infos.thumbnail is not None}")
+            log(f"Cover: neues Lied {schluessel[0]!r}, Thumbnail vorhanden: {infos.thumbnail is not None}")
             self._cover_fuer = schluessel
             self._cover = None
             self._cover_versuche = 0
@@ -113,7 +115,7 @@ class WindowsMedien:
             and (self._cover_task is None or self._cover_task.done())
         ):
             self._cover_versuche += 1
-            print(f"Cover: Versuch {self._cover_versuche} fuer {schluessel[0]!r}")
+            log(f"Cover: Versuch {self._cover_versuche} fuer {schluessel[0]!r}")
             self._cover_task = asyncio.create_task(self._cover_holen(schluessel, infos.thumbnail))
         self._cover_id = (
             hashlib.md5(repr(schluessel).encode()).hexdigest()[:8] if self._cover else ""
@@ -151,14 +153,14 @@ class WindowsMedien:
         try:
             daten = await asyncio.wait_for(self._cover_laden(thumbnail), timeout=5)
         except asyncio.TimeoutError:
-            print("Cover: Zeitueberschreitung beim Lesen")
+            log("Cover: Zeitueberschreitung beim Lesen")
             return
         if not daten:
-            print("Cover: keine Daten erhalten")
+            log("Cover: keine Daten erhalten")
         elif schluessel != self._cover_fuer:
-            print("Cover: Lied hat inzwischen gewechselt, verworfen")
+            log("Cover: Lied hat inzwischen gewechselt, verworfen")
         else:
-            print(f"Cover: {len(daten)} Bytes geladen")
+            log(f"Cover: {len(daten)} Bytes geladen")
             self._cover = daten
 
     async def _cover_laden(self, thumbnail):
@@ -174,7 +176,7 @@ class WindowsMedien:
             DataReader.from_buffer(puffer).read_bytes(daten)
             return bytes(daten)
         except Exception as fehler:  # Cover ist nur ein Extra, nie den Server stoppen
-            print("Cover konnte nicht gelesen werden:", fehler)
+            log("Cover konnte nicht gelesen werden:", fehler)
             return None
 
     def _endpunkt(self):
@@ -193,7 +195,7 @@ class WindowsMedien:
         except Exception as fehler:
             if not self._laut_fehler_gezeigt:  # nur einmal melden, nicht jede Sekunde
                 self._laut_fehler_gezeigt = True
-                print("Lautstaerke nicht verfuegbar:", repr(fehler))
+                log("Lautstaerke nicht verfuegbar:", repr(fehler))
             return None
 
     def _laut_lesen(self):

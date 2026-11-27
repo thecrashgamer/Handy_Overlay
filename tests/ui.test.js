@@ -21,7 +21,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const ok = (name) => console.log('ok  -', name);
   try {
     await page.goto(URL);
-    await page.waitForFunction(() => document.getElementById('status').textContent === 'Verbunden');
+    await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('Verbunden'));
     await page.waitForFunction(() => document.getElementById('titel').textContent === 'Testlied Eins');
     ok('verbindet und zeigt Titel');
 
@@ -51,6 +51,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.reload();
     await page.waitForFunction(() => document.getElementById('laut').value === '80');
     ok('Lautstaerke wird gesetzt und gemerkt');
+
+    const protokoll = await (await page.request.get(`${URL}/log`)).text();
+    assert.ok(protokoll.includes('laeuft auf Port'), 'Protokoll leer');
+    ok('/log zeigt das Server-Protokoll');
 
     await page.request.post(`${URL}/claude`, { data: { status: 'arbeitet' } });
     await page.waitForFunction(() => document.getElementById('claude').textContent.includes('arbeitet'));
@@ -91,7 +95,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT) },
       stdio: 'inherit',
     });
-    await page.waitForFunction(() => document.getElementById('status').textContent === 'Verbunden', null, { timeout: 15000 });
+    await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('Verbunden'), null, { timeout: 15000 });
     ok('verbindet sich nach Neustart von selbst neu');
     neu.kill();
     console.log('Alle Tests bestanden');

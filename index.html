@@ -116,6 +116,7 @@
     };
     ws.onmessage = function (e) {
       var d = JSON.parse(e.data);
+      el("status").textContent = "Verbunden" + (d.version ? " \u00B7 " + d.version : "");
       el("titel").textContent = d.titel || "-";
       el("kuenstler").textContent = d.kuenstler || "";
       el("play").innerHTML = d.spielt ? "&#9208;" : "&#9654;";

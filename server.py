@@ -9,14 +9,17 @@ import psutil
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketDisconnected
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
 import medien as medien_modul
+import protokoll
 import shortcuts
+from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
+VERSION = "v5 (Cover-Diagnose)"
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
 medien = medien_modul.erstellen(TEST)
@@ -48,6 +51,7 @@ def shortcuts_neu_laden():
 
 def nachricht_bauen():
     return json.dumps({
+        "version": VERSION,
         **zustand["medien"],
         "claude": zustand["claude"],
         "system": zustand["system"],
@@ -94,7 +98,7 @@ async def shortcut_ausloesen(befehl):
         try:
             await asyncio.to_thread(shortcuts.ausfuehren, eintrag)
         except Exception as fehler:
-            print("Shortcut fehlgeschlagen:", eintrag["name"], fehler)
+            log("Shortcut fehlgeschlagen:", eintrag["name"], fehler)
             ok = False
     zustand["shortcut"] = {"nr": zustand["shortcut"]["nr"] + 1, "name": eintrag["name"], "ok": ok}
     await an_alle_senden()
@@ -105,7 +109,7 @@ async def schleife():
         try:
             await aktualisieren()
         except Exception as fehler:  # die Schleife darf nie sterben
-            print("Aktualisieren fehlgeschlagen:", repr(fehler))
+            log("Aktualisieren fehlgeschlagen:", repr(fehler))
         await asyncio.sleep(1)
 
 
@@ -122,6 +126,12 @@ app = FastAPI(lifespan=lebenszyklus)
 @app.get("/")
 async def startseite():
     return FileResponse(ORDNER / "index.html")
+
+
+@app.get("/log")
+async def protokoll_zeigen():
+    """Die letzten Meldungen des Servers, zum Nachlesen im Browser."""
+    return PlainTextResponse("Phonebox " + VERSION + "\n\n" + "\n".join(protokoll.zeilen))
 
 
 @app.get("/cover")
@@ -161,12 +171,12 @@ async def verbindung(websocket: WebSocket):
             try:
                 await asyncio.wait_for(medien.befehl(befehl), timeout=5)
             except Exception as fehler:
-                print("Befehl fehlgeschlagen:", befehl, repr(fehler))
+                log("Befehl fehlgeschlagen:", befehl, repr(fehler))
             await asyncio.sleep(0.3)  # Spotify kurz Zeit geben, dann sofort aktualisieren
             try:
                 await aktualisieren()
             except Exception as fehler:
-                print("Aktualisieren fehlgeschlagen:", repr(fehler))
+                log("Aktualisieren fehlgeschlagen:", repr(fehler))
     except (WebSocketDisconnect, WebSocketDisconnected):
         pass  # iPhone hat die Verbindung geschlossen (z. B. Seite neu geladen)
     finally:
@@ -174,6 +184,6 @@ async def verbindung(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    print(f"Phonebox-Server laeuft auf Port {PORT}" + (" (Testmodus)" if TEST else ""))
+    log(f"Phonebox-Server {VERSION} laeuft auf Port {PORT}" + (" (Testmodus)" if TEST else ""))
     # log_config=None, damit der Server auch ohne Konsolenfenster (pythonw) laeuft
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_config=None)
