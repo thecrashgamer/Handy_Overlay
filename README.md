@@ -10,6 +10,12 @@ Am iPhone in Safari `https://<PC-IP>:8443` öffnen (die Adresse zeigt `start.bat
 
 Von Hand geht es auch: `pip install -r requirements.txt`, dann `python server.py`.
 
+## Standby (dunkle Uhr)
+
+Wird die Phonebox eine Weile nicht benutzt, wird der Bildschirm schwarz und zeigt nur eine große Uhr mit Datum. Läuft Musik, siehst du darunter Cover, Titel und Künstler. Der Claude-Status bleibt als kleine Zeile sichtbar. Ein Tipp (oder eine Taste) weckt auf. Der erste Tipp löst nichts darunter aus. Eine Rückfrage (z. B. Herunterfahren) und „Claude braucht dich“ wecken automatisch auf, und während einer Rückfrage schläft sie nie ein. Der Mond-Knopf unten schickt sie sofort in den Standby.
+
+Die Zeit stellst du **pro Gerät** unter Konto → „Anzeige auf diesem Gerät“ ein (Standard: 10 Minuten, oder „Nie“). Eine Webseite kann die Helligkeit des Bildschirms nicht ändern. Damit das iPhone nicht von selbst sperrt, stell dort Einstellungen → Anzeige & Helligkeit → Automatische Sperre auf „Nie“ (oder nutze den Geführten Zugriff).
+
 ## Aktualisieren
 
 `update.bat` doppelklicken. Das Skript lädt die neueste Version von GitHub, tauscht nur Programmdateien aus und startet den Server neu. Konten, Shortcuts und Zertifikate (Ordner `daten`) bleiben unberührt. Was ersetzt wird, liegt vorher als Sicherung in `daten/update-sicherung/` (die letzten 3 bleiben).
@@ -96,6 +102,7 @@ node tests/auth.test.js               # Konten-Test
 node tests/admin.test.js              # Admin-Bereich-Test
 node tests/https.test.js              # HTTPS-Test
 node tests/rechte.test.js             # Rechte und Aktivitätsprotokoll
+node tests/standby.test.js            # Standby-Modus
 # test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```

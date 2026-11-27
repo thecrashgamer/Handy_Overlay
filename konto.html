@@ -59,6 +59,21 @@
   </div>
 
   <div class="karte">
+    <h2>Anzeige auf diesem Gerät</h2>
+    <label for="standby">Standby (dunkle Uhr), wenn niemand das Gerät benutzt</label>
+    <select id="standby" onchange="standbySpeichern()">
+      <option value="0">Nie</option>
+      <option value="1">Nach 1 Minute</option>
+      <option value="2">Nach 2 Minuten</option>
+      <option value="5">Nach 5 Minuten</option>
+      <option value="10">Nach 10 Minuten</option>
+      <option value="30">Nach 30 Minuten</option>
+      <option value="60">Nach 1 Stunde</option>
+    </select>
+    <div class="hinweis" style="margin-top:8px">Ein Tipp weckt die Phonebox wieder auf. Auch eine Rückfrage oder „Claude braucht dich“ weckt sie auf. Die Einstellung gilt nur für dieses Gerät. Die Helligkeit des Bildschirms kann eine Webseite nicht ändern: Stell dafür am iPhone die Automatische Sperre auf „Nie“ und die Helligkeit nach Wunsch ein.</div>
+  </div>
+
+  <div class="karte">
     <h2>Passwort ändern</h2>
     <form onsubmit="return pwAendern(event)">
       <label for="p-alt">Aktuelles Passwort</label>
@@ -222,6 +237,16 @@
       .then(function () { meldung("m-admin", "Gespeichert.", "ok"); })
       .catch(function (f) { meldung("m-admin", f.message, "fehler"); });
   }
+
+  function standbySpeichern() {
+    try { localStorage.setItem("phonebox-standby", el("standby").value); } catch (e) {}
+  }
+
+  (function () {
+    var wert = "10";
+    try { wert = localStorage.getItem("phonebox-standby") || "10"; } catch (e) {}
+    el("standby").value = wert;
+  })();
 
   laden();
 </script>
