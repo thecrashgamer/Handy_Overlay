@@ -79,6 +79,40 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.waitForFunction(() => document.getElementById('claude').textContent === 'Frage offen');
     ok('Claude-Status mit eigenem Text');
 
+    // Claude-Ansicht: Aktion, Verlauf, Stoppuhr
+    const post = (d) => page.request.post(`${URL}/claude`, { data: d });
+    await post({ status: 'arbeitet', neu: true, projekt: 'Handy_Overlay', aktion: 'Neue Aufgabe: Cover bauen' });
+    await post({ status: 'arbeitet', aktion: 'Bearbeitet server.py' });
+    await post({ status: 'arbeitet', aktion: 'Liest medien.py' });
+    await page.waitForFunction(() => document.getElementById('claude').textContent === 'Claude: Liest medien.py');
+    ok('Banner zeigt die aktuelle Aktion');
+    await page.click('#wechsel');
+    await page.click('#wechsel');
+    assert.ok(await page.isVisible('#claudeview'), 'Claude-Ansicht nicht sichtbar');
+    assert.ok(!(await page.isVisible('#claude')), 'Banner sollte dort ausgeblendet sein');
+    await page.waitForFunction(() => document.getElementById('cl-aktion').textContent === 'Liest medien.py');
+    assert.strictEqual(await text('#cl-titel'), 'Claude arbeitet');
+    assert.strictEqual(await text('#cl-projekt'), 'Projekt: Handy_Overlay');
+    assert.match(await text('#cl-zeit'), /^seit \d+:\d\d$/);
+    const verlauf = await page.locator('#cl-verlauf li').allTextContents();
+    assert.strictEqual(verlauf.length, 3, 'Verlauf: ' + JSON.stringify(verlauf));
+    assert.ok(verlauf[0].endsWith('Liest medien.py') && verlauf[2].endsWith('Neue Aufgabe: Cover bauen'));
+    ok('Claude-Ansicht: Projekt, Aktion, Stoppuhr und Verlauf (neueste zuerst)');
+    await post({ status: 'arbeitet', aktion: 'Liest medien.py' });  // gleiche Aktion nicht doppelt
+    await wait(300);
+    assert.strictEqual(await page.locator('#cl-verlauf li').count(), 3);
+    await post({ status: 'fertig' });
+    await page.waitForFunction(() => document.getElementById('cl-titel').textContent === 'Claude ist fertig');
+    assert.match(await text('#cl-zeit'), /^fertig nach \d+:\d\d$/);
+    ok('Claude-Ansicht: fertig mit Dauer');
+    await page.screenshot({ path: (process.env.SHOT || 'phonebox.png').replace('.png', '-claude.png') });
+    await page.click('#wechsel');  // zurueck zu Musik
+    assert.ok(await page.isVisible('#titel'));
+    await post({ status: 'arbeitet', aktion: 'x' });
+    await post({ status: '' });
+    await page.waitForFunction(() => document.getElementById('claude').textContent === '');
+    ok('leerer Status blendet das Banner aus');
+
     await page.screenshot({ path: process.env.SHOT || 'phonebox.png' });
 
     // Extras-Ansicht
@@ -99,6 +133,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.reload();
     assert.ok(await page.isVisible('#extras'), 'Ansicht wird nicht gemerkt');
     ok('Ansicht wird nach dem Neuladen gemerkt');
+    await page.click('#wechsel');
     await page.click('#wechsel');
     assert.ok(await page.isVisible('#titel'));
 

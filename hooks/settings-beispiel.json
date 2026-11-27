@@ -1,13 +1,16 @@
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py arbeitet" } ] }
+      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py" } ] }
     ],
     "Notification": [
-      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py wartet" } ] }
+      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py fertig" } ] }
+      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py" } ] }
     ]
   }
 }

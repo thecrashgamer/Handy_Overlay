@@ -58,6 +58,31 @@
              background: #1db954; color: #000; font-weight: bold; padding: 8px 16px;
              border-radius: 20px; display: none; }
   #hinweis.fehler { background: #e5484d; color: #fff; }
+  /* Claude-Ansicht: woran Claude gerade arbeitet */
+  #claudeview { display: none; flex: 1; min-height: 0; align-items: center; justify-content: center;
+                gap: 28px; padding: 8px 20px; }
+  body.claudeansicht #inhalt, body.claudeansicht #extras { display: none; }
+  body.claudeansicht #claudeview { display: flex; }
+  body.claudeansicht #claude { display: none !important; }
+  #cl-haupt { width: 270px; }
+  #cl-projekt { color: #b3b3b3; font-size: 14px; min-height: 18px; }
+  #cl-status { font-size: 26px; font-weight: bold; margin-top: 6px; display: flex;
+               align-items: center; justify-content: center; gap: 10px; }
+  #cl-punkt { width: 14px; height: 14px; border-radius: 50%; background: #555; flex: none; }
+  #claudeview.arbeitet #cl-punkt { background: #f5a623; animation: puls 1.2s infinite; }
+  #claudeview.fertig #cl-punkt { background: #1db954; }
+  #claudeview.wartet #cl-punkt { background: #3b82f6; animation: puls 1.2s infinite; }
+  @keyframes puls { 50% { opacity: .3; } }
+  #cl-zeit { font-size: 15px; color: #b3b3b3; margin-top: 4px; min-height: 20px;
+             font-variant-numeric: tabular-nums; }
+  #cl-aktion { font-size: 20px; margin-top: 14px; min-height: 52px; word-break: break-word; }
+  #cl-verlauf { list-style: none; margin: 0; padding: 0; width: 300px; text-align: left;
+                font-size: 14px; color: #b3b3b3; max-height: 100%; overflow: hidden; }
+  #cl-verlauf li { padding: 6px 0; border-bottom: 1px solid #282828; white-space: nowrap;
+                   overflow: hidden; text-overflow: ellipsis; }
+  #cl-verlauf li:first-child { color: #fff; }
+  #cl-verlauf .uhr { color: #777; margin-right: 8px; font-variant-numeric: tabular-nums; }
+  #claude { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Hochformat: alles untereinander */
   @media (orientation: portrait) {
     #inhalt { flex-direction: column; gap: 16px; }
@@ -68,6 +93,7 @@
     #lautreihe { margin-top: 28px; }
     #extras { flex-direction: column; gap: 20px; }
     #system { text-align: center; }
+    #claudeview { flex-direction: column; gap: 16px; }
   }
 </style>
 </head>
@@ -104,6 +130,15 @@
       <div class="messung"><span id="ramtext">RAM</span><div class="balken"><div class="fuell" id="ram"></div></div></div>
     </div>
     <div id="sc"></div>
+  </div>
+  <div id="claudeview">
+    <div id="cl-haupt">
+      <div id="cl-projekt"></div>
+      <div id="cl-status"><span id="cl-punkt"></span><span id="cl-titel">Claude</span></div>
+      <div id="cl-zeit"></div>
+      <div id="cl-aktion"></div>
+    </div>
+    <ul id="cl-verlauf"></ul>
   </div>
   <button id="wechsel" onclick="ansichtWechseln()">&#9638;</button>
   <div id="hinweis"></div>
@@ -154,10 +189,7 @@
       extrasZeigen(d);
       zeitUebernehmen(d);
 
-      var c = d.claude || {};
-      var banner = el("claude");
-      banner.className = c.status || "";
-      banner.textContent = c.status ? (c.text || CLAUDE_TEXT[c.status] || c.status) : "";
+      claudeZeigen(d.claude || {});
     };
     ws.onclose = function () {
       el("status").textContent = "Warte auf PC ...";
@@ -236,6 +268,59 @@
     el("dauer").textContent = format(liedDauer);
   }
 
+  var claudeStand = {};
+  var claudeVersatz = 0;
+  var claudeListe = "";
+  var CLAUDE_TITEL = { arbeitet: "Claude arbeitet", fertig: "Claude ist fertig",
+                       wartet: "Claude braucht dich", "": "Claude ruht" };
+
+  function claudeZeigen(c) {
+    claudeStand = c;
+    claudeVersatz = c.jetzt ? Date.now() - c.jetzt : 0;  // Zeitunterschied zum PC ausgleichen
+    var status = c.status || "";
+
+    var banner = el("claude");
+    banner.className = status;
+    var kopf = c.text || (status === "arbeitet" && c.aktion ? "Claude: " + c.aktion : "");
+    banner.textContent = status ? (kopf || CLAUDE_TEXT[status] || status) : "";
+
+    el("claudeview").className = status;
+    el("cl-projekt").textContent = c.projekt ? "Projekt: " + c.projekt : "";
+    el("cl-titel").textContent = CLAUDE_TITEL[status] || "Claude";
+    el("cl-aktion").textContent = status === "wartet" ? (c.text || "") : (c.aktion || "");
+
+    var verlauf = c.verlauf || [];
+    var stand = JSON.stringify(verlauf);
+    if (stand !== claudeListe) {
+      claudeListe = stand;
+      var liste = el("cl-verlauf");
+      liste.textContent = "";
+      verlauf.slice().reverse().slice(0, 7).forEach(function (eintrag) {
+        var li = document.createElement("li");
+        var uhr = document.createElement("span");
+        uhr.className = "uhr";
+        uhr.textContent = new Date(eintrag.zeit + claudeVersatz)
+          .toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+        li.appendChild(uhr);
+        li.appendChild(document.createTextNode(eintrag.text));
+        liste.appendChild(li);
+      });
+    }
+    claudeZeitAnzeigen();
+  }
+
+  function claudeZeitAnzeigen() {
+    var c = claudeStand, status = c.status || "";
+    var text = "";
+    if (status === "arbeitet" || status === "wartet") {
+      var sekunden = (Date.now() - claudeVersatz - c.seit) / 1000;
+      text = (status === "arbeitet" ? "seit " : "wartet seit ") + format(sekunden);
+    } else if (status === "fertig") {
+      text = "fertig nach " + format(c.dauer || 0);
+    }
+    el("cl-zeit").textContent = text;
+  }
+
   function hinweisZeigen(text, fehler) {
     var h = el("hinweis");
     h.textContent = text;
@@ -251,11 +336,20 @@
     el("datum").textContent = jetzt.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
   }
 
+  var ANSICHTEN = ["musik", "extras", "claude"];
+  var ANSICHT_ICON = ["&#9638;", "&#10022;", "&#9835;"];  // zeigt, wohin die Taste als Naechstes wechselt
+  var ansichtNr = 0;
+
+  function ansichtSetzen(nr) {
+    ansichtNr = nr;
+    document.body.classList.toggle("extras", nr === 1);
+    document.body.classList.toggle("claudeansicht", nr === 2);
+    el("wechsel").innerHTML = ANSICHT_ICON[nr];
+    try { localStorage.setItem("phonebox-ansicht", ANSICHTEN[nr]); } catch (e) {}
+  }
+
   function ansichtWechseln() {
-    var extras = !document.body.classList.contains("extras");
-    document.body.classList.toggle("extras", extras);
-    el("wechsel").innerHTML = extras ? "&#9835;" : "&#9638;";
-    try { localStorage.setItem("phonebox-ansicht", extras ? "extras" : "musik"); } catch (e) {}
+    ansichtSetzen((ansichtNr + 1) % ANSICHTEN.length);
   }
 
   function senden(befehl) {
@@ -287,10 +381,14 @@
     senden("laut:" + this.value);  // Endwert immer senden
   });
 
-  try { if (localStorage.getItem("phonebox-ansicht") === "extras") ansichtWechseln(); } catch (e) {}
+  try {
+    var gemerkt = ANSICHTEN.indexOf(localStorage.getItem("phonebox-ansicht"));
+    if (gemerkt > 0) ansichtSetzen(gemerkt);
+  } catch (e) {}
   uhrAktualisieren();
   setInterval(uhrAktualisieren, 1000);
   setInterval(zeitAnzeigen, 250);
+  setInterval(claudeZeitAnzeigen, 1000);
   verbinden();
 </script>
 </body>
