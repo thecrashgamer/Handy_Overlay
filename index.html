@@ -51,12 +51,31 @@
   .kachel { width: 92px; height: 80px; border-radius: 14px; font-size: 13px; padding: 4px;
             display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
   .kachel .symbol { font-size: 26px; line-height: 1; }
+  .kachel.gesperrt { opacity: .4; }
+  button:disabled { opacity: .35; }
+  #ohnemusik { display: none; color: #f5a623; font-size: 13px; margin-top: 10px; }
   #keine { color: #b3b3b3; max-width: 280px; }
   #wechsel { position: fixed; right: 10px; bottom: 10px; width: 44px; height: 44px;
              font-size: 20px; background: rgba(40, 40, 40, .9); }
   #konto { position: fixed; left: 10px; bottom: 10px; width: 44px; height: 44px; border-radius: 50%;
            font-size: 20px; background: rgba(40, 40, 40, .9); color: #fff; text-decoration: none;
            display: flex; align-items: center; justify-content: center; }
+  #schlaf { position: fixed; left: 64px; bottom: 10px; width: 44px; height: 44px; font-size: 20px;
+            background: rgba(40, 40, 40, .9); }
+  /* Standby: dunkle Uhr, wenn niemand das Geraet benutzt */
+  #standby { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 40; background: #000;
+             flex-direction: column; align-items: center; justify-content: center; text-align: center; cursor: pointer;
+             color: #6b6b6b; -webkit-tap-highlight-color: transparent; }
+  #sb-uhr { font-size: min(26vw, 36vh); font-weight: 200; color: #b5b5b5; line-height: 1; font-variant-numeric: tabular-nums; }
+  #sb-datum { font-size: 18px; margin-top: 8px; }
+  #sb-musik { display: none; align-items: center; gap: 12px; margin-top: 26px; max-width: 86vw; text-align: left; }
+  #sb-cover { width: 56px; height: 56px; border-radius: 6px; object-fit: cover; opacity: .55; flex: none; }
+  #sb-cover:not([src]) { display: none; }
+  #sb-titel { font-size: 16px; color: #8a8a8a; }
+  #sb-kuenstler { font-size: 14px; }
+  #sb-claude { display: none; margin-top: 18px; font-size: 15px; }
+  #sb-claude .punkt { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; background: #555; }
+  #sb-status { font-size: 13px; margin-top: 14px; color: #8a5a2a; min-height: 16px; }
   #hinweis { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
              background: #1db954; color: #000; font-weight: bold; padding: 8px 16px;
              border-radius: 20px; display: none; }
@@ -135,6 +154,7 @@
         <button id="play" onclick="senden('playpause')">&#9654;</button>
         <button id="weiter" onclick="senden('weiter')">&#9197;</button>
       </div>
+      <div id="ohnemusik">Die Musiksteuerung ist für dein Konto abgeschaltet.</div>
       <div id="lautreihe">
         <span>&#128265;</span>
         <input id="laut" type="range" min="0" max="100" step="1">
@@ -161,8 +181,16 @@
     <ul id="cl-verlauf"></ul>
   </div>
   <a id="konto" href="/konto" title="Konto">&#128100;</a>
+  <button id="schlaf" onclick="standbyEin()" title="Standby">&#127769;</button>
   <button id="wechsel" onclick="ansichtWechseln()">&#9638;</button>
   <div id="hinweis"></div>
+  <div id="standby">
+    <div id="sb-uhr">--:--</div>
+    <div id="sb-datum"></div>
+    <div id="sb-musik"><img id="sb-cover" alt=""><div><div id="sb-titel"></div><div id="sb-kuenstler"></div></div></div>
+    <div id="sb-claude"><span class="punkt"></span><span id="sb-claude-text"></span></div>
+    <div id="sb-status"></div>
+  </div>
   <div id="jsfehler" onclick="this.style.display='none'"></div>
   <div id="rueckfrage">
     <div id="rf-icon"></div>
@@ -204,7 +232,7 @@
   }
 
   var ws;
-  var SEITE = "v16";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v18";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -229,12 +257,14 @@
     // Die Seite nennt dem Server ihre Version, damit er eine alte Seite im Protokoll meldet
     ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?seite=" + SEITE);
     ws.onopen = function () {
+      verbunden = true;
       el("status").textContent = "Verbunden";
     };
     ws.onmessage = function (e) {
       var d;
       try { d = JSON.parse(e.data); } catch (f) { jsFehlerZeigen("Nachricht unlesbar: " + f.message); return; }
       if (!d || typeof d !== "object") return;
+      letzteNachricht = d;
       if (d.fehler) { hinweisZeigen("Server-Fehler: " + d.fehler, true); return; }
       var neuLaden = false;
       teil("Version", function () {
@@ -253,13 +283,22 @@
       teil("Musik", function () { musikZeigen(d); });
       teil("Extras", function () { extrasZeigen(d); });
       teil("Zeitleiste", function () { zeitUebernehmen(d); });
+      teil("Rechte", function () { rechteZeigen(d.rechte); });
       teil("Claude", function () { claudeZeigen(d.claude || {}); });
     };
     ws.onclose = function () {
+      verbunden = false;
       el("status").textContent = "Warte auf PC ...";
       anmeldungPruefen();  // abgelaufene Sitzung: zur Anmeldung statt endlos neu zu verbinden
       setTimeout(verbinden, 3000);
     };
+  }
+
+  function rechteZeigen(r) {
+    // Ohne Musik-Recht sind Tasten und Regler gesperrt (der Server lehnt die Befehle ohnehin ab)
+    var darf = !r || r.musik !== false;
+    ["zurueck", "play", "weiter", "laut", "zeit"].forEach(function (id) { el(id).disabled = !darf; });
+    el("ohnemusik").style.display = darf ? "none" : "block";
   }
 
   function musikZeigen(d) {
@@ -312,16 +351,17 @@
       }
       liste.forEach(function (eintrag, i) {
         var b = document.createElement("button");
-        b.className = "kachel";
+        b.className = "kachel" + (eintrag.erlaubt === false ? " gesperrt" : "");
         var symbol = document.createElement("span");
         symbol.className = "symbol";
-        symbol.textContent = eintrag.icon || "\u25B6";
+        symbol.textContent = eintrag.erlaubt === false ? "\uD83D\uDD12" : (eintrag.icon || "\u25B6");
         var name = document.createElement("span");
         name.textContent = eintrag.name;
         b.appendChild(symbol);
         b.appendChild(name);
         b.onclick = function () {
           if (!ws || ws.readyState !== 1) { hinweisZeigen("Keine Verbindung zum PC", true); return; }
+          if (eintrag.erlaubt === false) { hinweisZeigen("Dafür hast du keine Berechtigung.", true); return; }
           hinweisZeigen(eintrag.name + " ...", false);  // sofortige Rueckmeldung: der Tipp ist angekommen
           senden("shortcut:" + i);
         };
@@ -372,6 +412,8 @@
     claudeStand = c;
     claudeVersatz = c.jetzt ? Date.now() - c.jetzt : 0;  // Zeitunterschied zum PC ausgleichen
     var status = c.status || "";
+    if (status === "wartet" && claudeVorher !== "wartet" && standbyAn) standbyAus();  // Claude braucht dich
+    claudeVorher = status;
 
     var banner = el("claude");
     banner.className = status;
@@ -421,6 +463,7 @@
   function rueckfrageZeigen(r) {
     var box = el("rueckfrage");
     if (!r) { box.style.display = "none"; rueckfrageNr = null; rueckfrageErledigt = null; return; }
+    if (standbyAn) standbyAus();  // eine Rueckfrage (z. B. Herunterfahren) muss man sehen
     // schon beantwortet oder abgelaufen, der Server hat es nur noch nicht gemeldet
     if (r.bis === rueckfrageErledigt) { box.style.display = "none"; rueckfrageNr = null; return; }
     rueckfrageNr = r.nr;
@@ -522,6 +565,74 @@
   setInterval(zeitAnzeigen, 250);
   setInterval(claudeZeitAnzeigen, 1000);
   setInterval(rueckfrageZeit, 500);
+  // ---- Standby
+  var letzteAktion = Date.now(), standbyAn = false, letzteNachricht = null, verbunden = false, claudeVorher = "";
+  var sbCoverId = "";
+
+  function standbySekunden() {
+    try {
+      var test = localStorage.getItem("phonebox-standby-sek");  // nur fuer Tests
+      if (test !== null) return Number(test) || 0;
+      var m = localStorage.getItem("phonebox-standby");
+      return (m === null ? 10 : Number(m) || 0) * 60;  // Standard: nach 10 Minuten
+    } catch (e) { return 600; }
+  }
+
+  function standbyEin() {
+    standbyAn = true;
+    el("standby").style.display = "flex";
+    standbyAktualisieren();
+  }
+
+  function standbyAus() {
+    standbyAn = false;
+    el("standby").style.display = "none";
+    letzteAktion = Date.now();
+  }
+
+  function standbyAktualisieren() {
+    var jetzt = new Date();
+    el("sb-uhr").textContent = jetzt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    el("sb-datum").textContent = jetzt.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+    var d = letzteNachricht || {};
+    var musik = el("sb-musik");
+    if (d.spielt && d.titel) {
+      musik.style.display = "flex";
+      el("sb-titel").textContent = d.titel;
+      el("sb-kuenstler").textContent = d.kuenstler || "";
+      var cover = el("sb-cover");
+      if (d.cover && d.cover !== sbCoverId) { sbCoverId = d.cover; cover.src = "/cover?id=" + d.cover; }
+      if (!d.cover) { sbCoverId = ""; cover.removeAttribute("src"); }
+    } else {
+      musik.style.display = "none";
+    }
+    var c = d.claude || {}, box = el("sb-claude");
+    if (c.status) {
+      var farben = { arbeitet: "#a56d12", fertig: "#14803a", wartet: "#2f5fa8" };
+      box.style.display = "block";
+      box.querySelector(".punkt").style.background = farben[c.status] || "#555";
+      el("sb-claude-text").textContent = (CLAUDE_TITEL[c.status] || "Claude") + (c.status === "arbeitet" && c.aktion ? ": " + c.aktion : "");
+    } else {
+      box.style.display = "none";
+    }
+    el("sb-status").textContent = verbunden ? "" : "Warte auf PC ...";
+  }
+
+  ["touchstart", "mousedown", "pointerdown", "wheel"].forEach(function (name) {
+    document.addEventListener(name, function () { if (!standbyAn) letzteAktion = Date.now(); }, true);
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (standbyAn) { ev.preventDefault(); standbyAus(); } else letzteAktion = Date.now();
+  }, true);
+  // Aufwecken beim "click": der erste Tipp trifft noch die dunkle Flaeche und nichts darunter
+  el("standby").addEventListener("click", function (ev) { ev.stopPropagation(); standbyAus(); });
+  setInterval(function () {
+    var sek = standbySekunden();
+    if (rueckfrageNr !== null) letzteAktion = Date.now();  // waehrend einer Rueckfrage nie einschlafen
+    if (!standbyAn && sek > 0 && Date.now() - letzteAktion > sek * 1000) standbyEin();
+    if (standbyAn) standbyAktualisieren();
+  }, 1000);
+
   anmeldungPruefen();
   verbinden();
 </script>

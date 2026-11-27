@@ -32,6 +32,7 @@ for _n in range(1, 13):
     TASTEN[f"f{_n}"] = 0x70 + _n - 1
 AKTIONEN = {"sperren", "herunterfahren", "herunterfahren_stoppen"}
 BESTAETIGEN_PFLICHT = {"herunterfahren"}
+ADMIN_AKTIONEN = {"herunterfahren", "herunterfahren_stoppen"}  # immer nur fuer Administratoren
 HERUNTERFAHREN_SEKUNDEN = 15  # so lange kann man noch mit "herunterfahren_stoppen" abbrechen
 KEIN_FENSTER = 0x08000000  # CREATE_NO_WINDOW: kein aufblitzendes Konsolenfenster
 ERWEITERT = {0x2E, 0x24, 0x23, 0x21, 0x22, 0x25, 0x26, 0x27, 0x28, 0x5B}
@@ -132,6 +133,8 @@ def pruefen(roh):
         eintrag["aktion"] = roh["aktion"]
     if roh.get("bestaetigen") is True:
         eintrag["bestaetigen"] = True
+    if roh.get("nur_admin") is True and eintrag.get("aktion") not in ADMIN_AKTIONEN:
+        eintrag["nur_admin"] = True  # bei Herunterfahren ueberfluessig, das gilt immer
     frage_text = str(roh.get("frage", "")).strip()
     if frage_text:
         if len(frage_text) > 100 or not _ohne_steuerzeichen(frage_text):
@@ -172,6 +175,18 @@ def speichern(pfad, liste):
     if os.path.exists(pfad):
         shutil.copyfile(pfad, pfad + ".bak")
     os.replace(hilfe, pfad)
+
+
+def braucht_admin(eintrag):
+    """Darf nur ein Administrator ausloesen?"""
+    return bool(eintrag.get("nur_admin")) or eintrag.get("aktion") in ADMIN_AKTIONEN
+
+
+def darf_ausloesen(eintrag, rechte):
+    """rechte = Ergebnis von konten.rechte(...)."""
+    if rechte.get("admin"):
+        return True
+    return bool(rechte.get("shortcuts")) and not braucht_admin(eintrag)
 
 
 def braucht_bestaetigung(eintrag):

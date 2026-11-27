@@ -59,6 +59,21 @@
   </div>
 
   <div class="karte">
+    <h2>Anzeige auf diesem Gerät</h2>
+    <label for="standby">Standby (dunkle Uhr), wenn niemand das Gerät benutzt</label>
+    <select id="standby" onchange="standbySpeichern()">
+      <option value="0">Nie</option>
+      <option value="1">Nach 1 Minute</option>
+      <option value="2">Nach 2 Minuten</option>
+      <option value="5">Nach 5 Minuten</option>
+      <option value="10">Nach 10 Minuten</option>
+      <option value="30">Nach 30 Minuten</option>
+      <option value="60">Nach 1 Stunde</option>
+    </select>
+    <div class="hinweis" style="margin-top:8px">Ein Tipp weckt die Phonebox wieder auf. Auch eine Rückfrage oder „Claude braucht dich“ weckt sie auf. Die Einstellung gilt nur für dieses Gerät. Die Helligkeit des Bildschirms kann eine Webseite nicht ändern: Stell dafür am iPhone die Automatische Sperre auf „Nie“ und die Helligkeit nach Wunsch ein.</div>
+  </div>
+
+  <div class="karte">
     <h2>Passwort ändern</h2>
     <form onsubmit="return pwAendern(event)">
       <label for="p-alt">Aktuelles Passwort</label>
@@ -91,7 +106,8 @@
 
   <div class="karte" id="admin" hidden>
     <h2>Verwalten</h2>
-    <a href="/admin" style="color:#1db954;text-decoration:none;font-size:15px;display:inline-block;margin-bottom:12px">Shortcuts anlegen und bearbeiten &rarr;</a>
+    <a href="/admin" style="color:#1db954;text-decoration:none;font-size:15px;display:inline-block;margin-bottom:6px">Shortcuts anlegen und bearbeiten &rarr;</a><br>
+    <a href="/aktivitaet" style="color:#1db954;text-decoration:none;font-size:15px;display:inline-block;margin-bottom:12px">Aktivitätsprotokoll ansehen &rarr;</a>
     <h2 style="margin-top:6px">Benutzer</h2>
     <label for="registrierung">Neue Konten</label>
     <select id="registrierung" onchange="modusSetzen()">
@@ -190,6 +206,10 @@
           if (b.status !== "aktiv") knopf(rechts, b.status === "wartet" ? "Freigeben" : "Entsperren", "freigeben", b, "gut");
           else knopf(rechts, "Sperren", "sperren", b);
           if (b.status === "aktiv") knopf(rechts, b.rolle === "admin" ? "Kein Admin" : "Zum Admin", b.rolle === "admin" ? "benutzer" : "admin", b);
+          if (b.rolle !== "admin") {  // Administratoren dürfen immer alles
+            knopf(rechts, "Musik: " + (b.darf_musik ? "an" : "aus"), b.darf_musik ? "musik_aus" : "musik_an", b, b.darf_musik ? "" : "rot");
+            knopf(rechts, "Shortcuts: " + (b.darf_shortcuts ? "an" : "aus"), b.darf_shortcuts ? "shortcuts_aus" : "shortcuts_an", b, b.darf_shortcuts ? "gut" : "");
+          }
           knopf(rechts, "Löschen", "loeschen", b, "rot");
         }
         zeile.appendChild(links);
@@ -217,6 +237,16 @@
       .then(function () { meldung("m-admin", "Gespeichert.", "ok"); })
       .catch(function (f) { meldung("m-admin", f.message, "fehler"); });
   }
+
+  function standbySpeichern() {
+    try { localStorage.setItem("phonebox-standby", el("standby").value); } catch (e) {}
+  }
+
+  (function () {
+    var wert = "10";
+    try { wert = localStorage.getItem("phonebox-standby") || "10"; } catch (e) {}
+    el("standby").value = wert;
+  })();
 
   laden();
 </script>

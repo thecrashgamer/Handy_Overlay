@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phonebox – Aktivität</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #121212; color: #fff; font-family: -apple-system, "Segoe UI", sans-serif; padding: 16px; }
+  .seite { max-width: 820px; margin: 0 auto; }
+  .kopf { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  h1 { font-size: 22px; margin: 0; }
+  a { color: #1db954; text-decoration: none; font-size: 15px; }
+  .filter { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  select, input[type=text] { padding: 9px; font-size: 14px; border-radius: 8px; border: 1px solid #333; background: #1c1c1c; color: #fff; }
+  input[type=text] { width: 150px; }
+  .liste { background: #1c1c1c; border-radius: 14px; overflow: hidden; }
+  .eintrag { display: grid; grid-template-columns: 112px 100px 1fr; gap: 6px 10px; padding: 10px 14px; border-top: 1px solid #262626; font-size: 14px; align-items: baseline; }
+  .eintrag:first-child { border-top: none; }
+  .zeit { color: #8a8a8a; font-variant-numeric: tabular-nums; font-size: 13px; }
+  .art { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #2a2a2a; color: #cfcfcf; text-align: center; white-space: nowrap; }
+  .art.shortcut { background: #123a22; color: #7ee2a0; }
+  .art.verweigert, .art.anmeldung-fehler, .art.sicherheit { background: #3b1517; color: #ff8a8f; }
+  .art.admin { background: #3a2f10; color: #ffd37a; }
+  .art.anmeldung { background: #10304a; color: #8cc8ff; }
+  .text { word-break: break-word; }
+  .wer { color: #b3b3b3; font-size: 12px; }
+  .leer { padding: 24px; text-align: center; color: #8a8a8a; }
+  .hinweis { color: #8a8a8a; font-size: 13px; margin-top: 10px; }
+  @media (max-width: 560px) { .eintrag { grid-template-columns: 1fr auto; } .text { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+<div class="seite">
+  <div class="kopf">
+    <h1>Aktivität</h1>
+    <div><a href="/konto">&larr; Konto</a></div>
+  </div>
+  <div class="filter">
+    <select id="art" onchange="laden()">
+      <option value="">Alles</option>
+      <option value="anmeldung,anmeldung-fehler,abmeldung,konto,passwort">Anmeldungen und Konten</option>
+      <option value="shortcut">Shortcuts</option>
+      <option value="musik">Musik</option>
+      <option value="verweigert">Verweigert</option>
+      <option value="admin">Verwaltung</option>
+      <option value="sicherheit,anmeldung-fehler">Sicherheit und Fehlversuche</option>
+    </select>
+    <input type="text" id="wer" placeholder="Benutzername" oninput="verzoegert()" autocapitalize="none" spellcheck="false">
+    <select id="limit" onchange="laden()">
+      <option value="100">100 Einträge</option>
+      <option value="300" selected>300 Einträge</option>
+      <option value="1000">1000 Einträge</option>
+    </select>
+  </div>
+  <div class="liste" id="liste"><div class="leer">Lade ...</div></div>
+  <div class="hinweis">Die neuesten stehen oben. Es werden die letzten 5000 Einträge aufbewahrt. Die Seite aktualisiert sich alle 10 Sekunden.</div>
+</div>
+<script>
+  var timer;
+  function el(id) { return document.getElementById(id); }
+  var NAMEN = { shortcut: "Shortcut", musik: "Musik", verweigert: "Verweigert", admin: "Verwaltung", anmeldung: "Anmeldung",
+    "anmeldung-fehler": "Fehlversuch", abmeldung: "Abmeldung", konto: "Konto", passwort: "Passwort", sicherheit: "Sicherheit" };
+
+  function zeitText(sek) {
+    var d = new Date(sek * 1000), heute = new Date();
+    var uhr = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (d.toDateString() === heute.toDateString()) return "heute " + uhr;
+    return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " " + uhr;
+  }
+
+  function laden() {
+    var url = "/api/aktivitaet?limit=" + el("limit").value + "&art=" + encodeURIComponent(el("art").value) +
+      "&benutzer=" + encodeURIComponent(el("wer").value.trim());
+    fetch(url, { credentials: "same-origin" }).then(function (r) {
+      if (r.status === 401) { location.href = "/anmelden"; return null; }
+      if (r.status === 403) { el("liste").innerHTML = '<div class="leer">Das darf nur ein Administrator sehen.</div>'; return null; }
+      return r.json();
+    }).then(function (j) {
+      if (!j) return;
+      var liste = el("liste");
+      liste.textContent = "";
+      if (!j.eintraege.length) { var l = document.createElement("div"); l.className = "leer"; l.textContent = "Keine Einträge."; liste.appendChild(l); return; }
+      j.eintraege.forEach(function (e) {
+        var z = document.createElement("div");
+        z.className = "eintrag";
+        var zeit = document.createElement("div"); zeit.className = "zeit"; zeit.textContent = zeitText(e.zeit);
+        var art = document.createElement("div"); art.className = "art " + e.art; art.textContent = NAMEN[e.art] || e.art;
+        var text = document.createElement("div"); text.className = "text";
+        var wer = document.createElement("span"); wer.className = "wer";
+        wer.textContent = (e.benutzer || "unbekannt") + (e.ip ? " · " + e.ip : "") + "  ";
+        text.appendChild(document.createTextNode(e.text + "  "));
+        text.appendChild(wer);
+        z.appendChild(zeit); z.appendChild(art); z.appendChild(text);
+        liste.appendChild(z);
+      });
+    }).catch(function () {});
+  }
+
+  function verzoegert() { clearTimeout(timer); timer = setTimeout(laden, 300); }
+  laden();
+  setInterval(laden, 10000);
+</script>
+</body>
+</html>

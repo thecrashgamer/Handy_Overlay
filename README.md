@@ -10,6 +10,22 @@ Am iPhone in Safari `https://<PC-IP>:8443` öffnen (die Adresse zeigt `start.bat
 
 Von Hand geht es auch: `pip install -r requirements.txt`, dann `python server.py`.
 
+## Standby (dunkle Uhr)
+
+Wird die Phonebox eine Weile nicht benutzt, wird der Bildschirm schwarz und zeigt nur eine große Uhr mit Datum. Läuft Musik, siehst du darunter Cover, Titel und Künstler. Der Claude-Status bleibt als kleine Zeile sichtbar. Ein Tipp (oder eine Taste) weckt auf. Der erste Tipp löst nichts darunter aus. Eine Rückfrage (z. B. Herunterfahren) und „Claude braucht dich“ wecken automatisch auf, und während einer Rückfrage schläft sie nie ein. Der Mond-Knopf unten schickt sie sofort in den Standby.
+
+Die Zeit stellst du **pro Gerät** unter Konto → „Anzeige auf diesem Gerät“ ein (Standard: 10 Minuten, oder „Nie“). Eine Webseite kann die Helligkeit des Bildschirms nicht ändern. Damit das iPhone nicht von selbst sperrt, stell dort Einstellungen → Anzeige & Helligkeit → Automatische Sperre auf „Nie“ (oder nutze den Geführten Zugriff).
+
+## Aktualisieren
+
+`update.bat` doppelklicken. Das Skript lädt die neueste Version von GitHub, tauscht nur Programmdateien aus und startet den Server neu. Konten, Shortcuts und Zertifikate (Ordner `daten`) bleiben unberührt. Was ersetzt wird, liegt vorher als Sicherung in `daten/update-sicherung/` (die letzten 3 bleiben).
+
+- `python update.py --trocken` zeigt nur, was sich ändern würde.
+- `python update.py --zurueck` stellt die Dateien der letzten Sicherung wieder her.
+- `python update.py --quelle <Adresse oder ZIP-Datei>` nimmt eine andere Quelle.
+
+Aus Sicherheitsgründen akzeptiert das Skript keine ZIP-Dateien mit unsicheren Pfaden (`../`), Verknüpfungen oder ohne `server.py`, und es beendet nur Prozesse, die `server.py` auf den Phonebox-Ports ausführen.
+
 ## Konten und Anmeldung
 
 Die ganze Phonebox ist durch Benutzerkonten geschützt. Ohne Anmeldung kommt man weder auf die Seite noch an die Steuerung, das Cover oder das Protokoll.
@@ -37,6 +53,18 @@ Beim ersten Start legt der Server ein eigenes Zertifikat an (Ordner `daten/https
 Ändert sich die IP-Adresse des PCs, erneuert der Server beim nächsten Start nur das Server-Zertifikat. Das Handy muss nichts neu installieren. Weitere Namen, etwa einen Tailscale-Namen, trägst du in der Umgebungsvariable `PHONEBOX_ZUSATZ_NAMEN` ein (kommagetrennt). Mit `PHONEBOX_HTTPS=0` gibt es wieder nur unverschlüsseltes http im ganzen Netz. Das ist nicht empfohlen. Klappt HTTPS nicht (z. B. fehlt `cryptography`), läuft die Phonebox nur am PC und nie unverschlüsselt im WLAN.
 
 **Wichtig:** Die Datei `daten/https/ca-key.pem` ist der geheime Schlüssel deiner Zertifizierungsstelle. Wer ihn hat, könnte Zertifikate ausstellen, denen dein Handy vertraut. Gib den Ordner `daten` nie weiter. Hast du den Verdacht, dass er geklaut wurde: Ordner `daten/https` löschen, Server neu starten, das Profil am Handy entfernen und das neue installieren.
+
+## Rechte und Aktivitätsprotokoll
+
+Administratoren dürfen alles. Für normale Benutzer stellst du unter Konto → Verwalten pro Konto ein:
+- **Musik** (Standard: an): Titel wechseln, Pause, Lautstärke, Zeitleiste.
+- **Shortcuts** (Standard: aus): Kacheln auslösen. Im Admin-Bereich kannst du einzelne Kacheln zusätzlich auf „Nur für Administratoren“ setzen. **Herunterfahren** und **Herunterfahren stoppen** sind immer nur für Administratoren.
+
+Gesperrte Kacheln erscheinen mit einem Schloss. Der Server prüft die Rechte bei **jedem** Befehl neu, nicht nur die Oberfläche. Wer Befehle an der Oberfläche vorbei schickt, wird abgewiesen und im Protokoll vermerkt. Eine Rückfrage (z. B. vor dem Herunterfahren) sieht und bestätigt nur der, der sie ausgelöst hat. Rechte, die du änderst, gelten sofort, auch für schon geöffnete Seiten.
+
+Unter Konto → „Aktivitätsprotokoll ansehen“ (nur Administratoren) steht, wer wann was getan hat: Anmeldungen und Fehlversuche (mit Adresse), ausgelöste Shortcuts, Musiksteuerung, verweigerte Zugriffe und alle Änderungen in der Verwaltung. Passwörter stehen dort nie. Aufbewahrt werden die letzten 5000 Einträge. Eine Sperre wegen vieler Fehlversuche erscheint nur einmal pro 5 Minuten, damit niemand das Protokoll fluten kann.
+
+Hinweis beim Update einer älteren Version: Bestehende normale Benutzer behalten die Musiksteuerung, bekommen aber **keine** Shortcuts mehr, bis du sie freigibst.
 
 ## Shortcut-Tasten und Admin-Bereich
 
@@ -73,6 +101,9 @@ node tests/ui.test.js                 # UI-Test mit Playwright
 node tests/auth.test.js               # Konten-Test
 node tests/admin.test.js              # Admin-Bereich-Test
 node tests/https.test.js              # HTTPS-Test
+node tests/rechte.test.js             # Rechte und Aktivitätsprotokoll
+node tests/standby.test.js            # Standby-Modus
+# test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
@@ -84,11 +115,13 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `medien.py` | Spotify, Cover und Lautstärke (Windows) bzw. Fake-Daten (Test) |
 | `shortcuts.py`, `shortcuts.json` | Shortcut-Logik, Prüfung und Vorlage |
 | `admin.py`, `admin.html` | Admin-Bereich für die Shortcuts |
+| `aktivitaet.html` | Aktivitätsprotokoll |
 | `index.html` | Oberfläche fürs iPhone |
 | `zertifikate.py`, `zertifikat.html` | HTTPS: eigenes Zertifikat und Anleitung für das Handy |
 | `anmelden.html`, `konto.html` | Anmeldung, Konto und Benutzerverwaltung |
 | `auth.py`, `konten.py` | Routen und Logik der Konten |
 | `benutzer.py` | Konten am PC verwalten |
 | `start.bat` | Einrichtung und Autostart |
+| `update.bat`, `update.py` | Aktualisieren auf die neueste Version |
 | `hooks/` | Claude-Code-Hooks |
 | `tests/` | UI-Test und Shortcut-Tests |
