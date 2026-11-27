@@ -6,6 +6,7 @@ Oberflaeche auch ohne Windows und Spotify testen lassen (PHONEBOX_TEST=1).
 """
 import asyncio
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 
 from protokoll import log
 
@@ -71,6 +72,10 @@ class WindowsMedien:
         self._cover_task = None
         self._cover_id = ""
         self._laut_fehler_gezeigt = False
+        # pycaw/comtypes stellen den Thread, in dem sie laufen, auf einen COM-Modus um, in dem
+        # Windows die Ergebnisse anderer Aufrufe (z. B. Cover lesen) nicht mehr zustellt.
+        # Darum laufen alle Lautstaerke-Aufrufe in einem eigenen Thread.
+        self._com = ThreadPoolExecutor(max_workers=1, thread_name_prefix="com")
 
     async def _sitzung(self):
         """Sucht die laufende Spotify-Sitzung in der Windows-Mediensteuerung."""
@@ -81,7 +86,7 @@ class WindowsMedien:
         return None
 
     async def status(self):
-        laut = self._laut_lesen()
+        laut = await asyncio.get_running_loop().run_in_executor(self._com, self._laut_lesen)
         sitzung = await self._sitzung()
         if not getattr(self, "_start_gemeldet", False):
             self._start_gemeldet = True
@@ -130,7 +135,9 @@ class WindowsMedien:
 
     async def befehl(self, befehl: str):
         if befehl.startswith("laut:"):
-            self._laut_setzen(_prozent(befehl))
+            await asyncio.get_running_loop().run_in_executor(
+                self._com, self._laut_setzen, _prozent(befehl)
+            )
             return
         sitzung = await self._sitzung()
         if sitzung is None:
@@ -150,11 +157,14 @@ class WindowsMedien:
         return daten, art
 
     async def _cover_holen(self, schluessel, thumbnail):
-        try:
-            daten = await asyncio.wait_for(self._cover_laden(thumbnail), timeout=5)
-        except asyncio.TimeoutError:
+        aufgabe = asyncio.ensure_future(self._cover_laden(thumbnail))
+        # asyncio.wait statt wait_for: haengt Windows, warten wir nicht auf das Abbrechen
+        fertig, _ = await asyncio.wait({aufgabe}, timeout=5)
+        if not fertig:
             log("Cover: Zeitueberschreitung beim Lesen")
+            aufgabe.cancel()
             return
+        daten = aufgabe.result()
         if not daten:
             log("Cover: keine Daten erhalten")
         elif schluessel != self._cover_fuer:

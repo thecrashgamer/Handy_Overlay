@@ -19,7 +19,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v5 (Cover-Diagnose)"
+VERSION = "v6 (COM-Thread)"
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
 medien = medien_modul.erstellen(TEST)
