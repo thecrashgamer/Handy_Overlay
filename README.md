@@ -24,6 +24,10 @@ Die Zeit stellst du **pro Gerät** unter Konto → „Anzeige auf diesem Gerät�
 - `python update.py --zurueck` stellt die Dateien der letzten Sicherung wieder her.
 - `python update.py --quelle <Adresse oder ZIP-Datei>` nimmt eine andere Quelle.
 
+**Update per Knopf:** Im Admin-Bereich (`/admin`, ganz unten „System und Update“) kannst du nach einer neuen Version suchen und sie mit einem Klick einspielen, ohne `update.bat`. Das braucht dein Passwort. Der Server startet dabei etwa eine halbe Minute neu, die Seite zeigt den Fortschritt und lädt danach neu. Konten, Shortcuts, Bilder und deine Anmeldung bleiben erhalten. Dort gibt es auch „Zur letzten Sicherung zurückkehren“. Start und Ergebnis stehen im Aktivitätsprotokoll. Es läuft immer nur ein Update gleichzeitig, und schlägt eines fehl (z. B. kein Internet), läuft der Server unverändert weiter.
+
+**Wichtig:** Ein Update führt Code aus deinem GitHub-Repository auf deinem PC aus. Sichere deshalb dein GitHub-Konto mit Zwei-Faktor-Anmeldung. Die Quelle ist fest eingebaut und lässt sich nicht über die Webseite ändern (nur über die Umgebungsvariable `PHONEBOX_UPDATE_QUELLE` des Servers).
+
 Aus Sicherheitsgründen akzeptiert das Skript keine ZIP-Dateien mit unsicheren Pfaden (`../`), Verknüpfungen oder ohne `server.py`, und es beendet nur Prozesse, die `server.py` auf den Phonebox-Ports ausführen.
 
 ## Konten und Anmeldung
@@ -106,6 +110,7 @@ node tests/https.test.js              # HTTPS-Test
 node tests/rechte.test.js             # Rechte und Aktivitätsprotokoll
 node tests/standby.test.js            # Standby-Modus
 node tests/icons.test.js              # Bilder als Symbole
+node tests/adminupdate.test.js        # Update per Knopf (mit echtem Neustart, dauert etwas)
 # test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```

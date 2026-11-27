@@ -58,6 +58,15 @@
   #emoji button:hover { background: #3a3a3a; }
   #emoji .eigen { grid-column: 1 / -1; display: flex; gap: 6px; }
   .aufnahme { background: #5a1d20 !important; }
+  .system { margin-top: 26px; }
+  .system .zeile2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .system input[type=password] { flex: 1 1 180px; }
+  .upd-ergebnis { margin-top: 10px; font-size: 14px; line-height: 1.45; }
+  .upd-neu { color: #7ee2a0; font-weight: bold; }
+  #upd-log { background: #0c0c0c; color: #9a9a9a; border-radius: 8px; padding: 10px; font-size: 12px; max-height: 190px;
+             overflow: auto; white-space: pre-wrap; word-break: break-word; margin-top: 10px; }
+  #upd-fortschritt { margin-top: 10px; color: #f5a623; }
+  details.ausklapp summary { cursor: pointer; color: #8a8a8a; font-size: 13px; margin-top: 12px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -82,6 +91,32 @@
     </select>
   </div>
   <div id="neuzone">Bild hierher ziehen, um daraus einen neuen Shortcut anzulegen</div>
+  <div class="karte system" id="system">
+    <h2 style="margin-top:0">System und Update</h2>
+    <div>Installiert: <b id="upd-installiert">...</b></div>
+    <div class="upd-ergebnis" id="upd-ergebnis"></div>
+    <div class="zeile2">
+      <button class="knopf zweit" id="upd-pruefen" onclick="updatePruefen(true)">Nach Updates suchen</button>
+    </div>
+    <div id="upd-aktion" hidden>
+      <div class="zeile2">
+        <input type="password" id="upd-pw" placeholder="Zum Aktualisieren: dein Passwort" autocomplete="current-password">
+        <button class="knopf" id="upd-start" onclick="updateStarten(false)">Jetzt aktualisieren</button>
+      </div>
+      <div class="hinweis" style="margin-top:6px">Der Server startet dabei kurz neu (etwa eine halbe Minute). Deine Konten, Shortcuts und Bilder bleiben erhalten, die alten Dateien werden vorher gesichert.</div>
+    </div>
+    <details class="ausklapp">
+      <summary>Zur letzten Sicherung zurückkehren</summary>
+      <div class="zeile2">
+        <input type="password" id="upd-pw2" placeholder="Dein Passwort" autocomplete="current-password">
+        <button class="knopf zweit" onclick="updateStarten(true)">Alte Dateien wiederherstellen</button>
+      </div>
+    </details>
+    <div id="upd-fortschritt" hidden></div>
+    <pre id="upd-log" hidden></pre>
+    <div class="meldung" id="upd-meldung" role="alert"></div>
+  </div>
+
   <p class="hinweis">Am PC ausgeführt wird nur, was hier steht. Das Handy schickt nur die Nummer der Kachel. Die Reihenfolge hier ist die Reihenfolge am Handy.</p>
 </div>
 
@@ -503,6 +538,107 @@
     }).catch(function (f) { meldung(f.message, "fehler"); });
   }
 
+  // ---- Update
+  var updateLaeuft = false;
+
+  function updMeldung(text, art) {
+    var m = el("upd-meldung");
+    m.textContent = text || "";
+    m.className = "meldung" + (text ? " " + art : "");
+  }
+
+  function updatePruefen(neu) {
+    updMeldung("");
+    el("upd-pruefen").disabled = true;
+    el("upd-ergebnis").textContent = "Frage GitHub ...";
+    return anfrage("GET", "/api/update/pruefen" + (neu ? "?neu=1" : "")).then(function (a) {
+      el("upd-installiert").textContent = a.installiert;
+      var box = el("upd-ergebnis");
+      box.textContent = "";
+      if (a.neu) {
+        box.appendChild(h("div", { class: "upd-neu", text: "Neue Version verfügbar: " + a.neueste }));
+        if (a.aenderung) box.appendChild(h("div", { class: "hinweis", text: "Zuletzt geändert: " + a.aenderung }));
+      } else {
+        box.appendChild(h("div", { text: "Du hast die neueste Version (" + a.neueste + ")." }));
+      }
+      el("upd-aktion").hidden = false;
+      el("upd-start").textContent = a.neu ? "Jetzt aktualisieren" : "Trotzdem neu installieren";
+    }).catch(function (f) {
+      el("upd-ergebnis").textContent = "";
+      updMeldung(f.message, "fehler");
+    }).then(function () { el("upd-pruefen").disabled = false; });
+  }
+
+  function updateStarten(zurueck) {
+    if (stand() !== original) { updMeldung("Speichere oder verwirf zuerst deine Änderungen an den Shortcuts.", "fehler"); return; }
+    var pw = el(zurueck ? "upd-pw2" : "upd-pw").value;
+    if (!pw) { updMeldung("Gib dein Passwort ein.", "fehler"); return; }
+    if (!confirm(zurueck ? "Die Dateien der letzten Sicherung wiederherstellen? Der Server startet kurz neu."
+                         : "Jetzt aktualisieren? Der Server startet dabei kurz neu.")) return;
+    updMeldung("");
+    anfrage("POST", "/api/update/starten", { passwort: pw, zurueck: !!zurueck }).then(function () {
+      el("upd-pw").value = el("upd-pw2").value = "";
+      updateBeobachten();
+    }).catch(function (f) { updMeldung(f.message, "fehler"); });
+  }
+
+  // Waehrend der Server neu startet, antwortet er kurz nicht: das ist normal und kein Fehler
+  function updateBeobachten() {
+    updateLaeuft = true;
+    el("upd-fortschritt").hidden = false;
+    el("upd-log").hidden = false;
+    el("upd-start").disabled = true;
+    var versuche = 0;
+    (function runde() {
+      fetch("/api/update/status", { credentials: "same-origin", headers: { "X-Phonebox": "1" } }).then(function (r) {
+        if (r.status === 401 || r.status === 403) { location.href = "/anmelden"; return null; }
+        return r.ok ? r.json() : null;
+      }).then(function (d) {
+        versuche = d ? 0 : versuche + 1;
+        if (d) {
+          el("upd-log").textContent = (d.zeilen || []).join("\n");
+          el("upd-log").scrollTop = el("upd-log").scrollHeight;
+        }
+        if (!d) {
+          el("upd-fortschritt").textContent = "Der Server startet neu ...";
+          if (versuche > 60) { el("upd-fortschritt").textContent = ""; updMeldung("Der Server antwortet nicht mehr. Starte ihn am PC mit python server.py.", "fehler"); updateLaeuft = false; return; }
+        } else if (d.zustand === "laeuft") {
+          el("upd-fortschritt").textContent = "Das Update läuft ...";
+        } else {
+          updateLaeuft = false;
+          el("upd-fortschritt").textContent = "";
+          el("upd-start").disabled = false;
+          if (d.zustand === "fertig") {
+            updMeldung("Fertig: " + (d.von || "?") + " → " + (d.nach || d.installiert) + ". Die Seite lädt gleich neu.", "ok");
+            setTimeout(function () { location.reload(); }, 2500);
+          } else if (d.zustand === "nichts") {
+            updMeldung("Schon auf dem neuesten Stand. Es wurde nichts geändert.", "ok");
+          } else {
+            updMeldung("Fehlgeschlagen: " + (d.meldung || "unbekannter Fehler"), "fehler");
+          }
+          return;
+        }
+        setTimeout(runde, 1500);
+      }).catch(function () {
+        versuche++;
+        el("upd-fortschritt").textContent = "Der Server startet neu ...";
+        if (versuche > 60) { el("upd-fortschritt").textContent = ""; updMeldung("Der Server antwortet nicht mehr. Starte ihn am PC mit python server.py.", "fehler"); updateLaeuft = false; return; }
+        setTimeout(runde, 1500);
+      });
+    })();
+  }
+
+  function updateStartAnsicht() {
+    anfrage("GET", "/api/update/status").then(function (d) {
+      el("upd-installiert").textContent = d.installiert || "?";
+      if (d.zustand === "laeuft") { updateBeobachten(); return; }
+      if (d.zustand === "fertig" || d.zustand === "fehler") {
+        var wann = d.zeit ? new Date(d.zeit * 1000).toLocaleString("de-DE") : "";
+        el("upd-ergebnis").textContent = "Letzte Aktion (" + wann + "): " + (d.zustand === "fertig" ? (d.von + " → " + (d.nach || "?")) : "fehlgeschlagen: " + (d.meldung || ""));
+      }
+    }).catch(function () {});
+  }
+
   // Ein Bild, das irgendwo neben einer Karte losgelassen wird, darf den Browser nicht wegnavigieren lassen
   ["dragover", "drop"].forEach(function (n) { window.addEventListener(n, function (ev) { ev.preventDefault(); }); });
   var zone = el("neuzone");
@@ -531,6 +667,7 @@
   });
   el("pw").addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !el("speichern").disabled) speichern(); });
   laden();
+  updateStartAnsicht();
 </script>
 </body>
 </html>

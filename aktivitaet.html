@@ -21,7 +21,7 @@
   .art { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #2a2a2a; color: #cfcfcf; text-align: center; white-space: nowrap; }
   .art.shortcut { background: #123a22; color: #7ee2a0; }
   .art.verweigert, .art.anmeldung-fehler, .art.sicherheit { background: #3b1517; color: #ff8a8f; }
-  .art.admin { background: #3a2f10; color: #ffd37a; }
+  .art.admin, .art.system { background: #3a2f10; color: #ffd37a; }
   .art.anmeldung { background: #10304a; color: #8cc8ff; }
   .text { word-break: break-word; }
   .wer { color: #b3b3b3; font-size: 12px; }
@@ -43,7 +43,7 @@
       <option value="shortcut">Shortcuts</option>
       <option value="musik">Musik</option>
       <option value="verweigert">Verweigert</option>
-      <option value="admin">Verwaltung</option>
+      <option value="admin,system">Verwaltung und Updates</option>
       <option value="sicherheit,anmeldung-fehler">Sicherheit und Fehlversuche</option>
     </select>
     <input type="text" id="wer" placeholder="Benutzername" oninput="verzoegert()" autocapitalize="none" spellcheck="false">
@@ -60,7 +60,7 @@
   var timer;
   function el(id) { return document.getElementById(id); }
   var NAMEN = { shortcut: "Shortcut", musik: "Musik", verweigert: "Verweigert", admin: "Verwaltung", anmeldung: "Anmeldung",
-    "anmeldung-fehler": "Fehlversuch", abmeldung: "Abmeldung", konto: "Konto", passwort: "Passwort", sicherheit: "Sicherheit" };
+    "anmeldung-fehler": "Fehlversuch", abmeldung: "Abmeldung", konto: "Konto", passwort: "Passwort", sicherheit: "Sicherheit", system: "System" };
 
   function zeitText(sek) {
     var d = new Date(sek * 1000), heute = new Date();
