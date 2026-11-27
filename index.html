@@ -83,6 +83,18 @@
   #cl-verlauf li:first-child { color: #fff; }
   #cl-verlauf .uhr { color: #777; margin-right: 8px; font-variant-numeric: tabular-nums; }
   #claude { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Rueckfrage (z. B. vor dem Herunterfahren) */
+  #rueckfrage { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 10;
+                background: rgba(0, 0, 0, .88); align-items: center; justify-content: center;
+                flex-direction: column; padding: 20px; }
+  #rf-icon { font-size: 44px; line-height: 1; }
+  #rf-frage { font-size: 22px; font-weight: bold; margin-top: 10px; max-width: 420px; }
+  #rf-zeit { color: #b3b3b3; font-size: 14px; margin-top: 6px; }
+  #rf-tasten { display: flex; gap: 40px; margin-top: 20px; }
+  #rf-tasten button { width: 150px; height: 60px; border-radius: 30px; font-size: 18px; font-weight: bold; }
+  #rf-nein { background: #3a3a3a; }
+  #rf-ja { background: #e5484d; }
+  #rf-ja:active { background: #b3262c; }
   /* Hochformat: alles untereinander */
   @media (orientation: portrait) {
     #inhalt { flex-direction: column; gap: 16px; }
@@ -142,6 +154,15 @@
   </div>
   <button id="wechsel" onclick="ansichtWechseln()">&#9638;</button>
   <div id="hinweis"></div>
+  <div id="rueckfrage">
+    <div id="rf-icon"></div>
+    <div id="rf-frage"></div>
+    <div id="rf-zeit"></div>
+    <div id="rf-tasten">
+      <button id="rf-nein" onclick="rueckfrageAntwort(false)">Abbrechen</button>
+      <button id="rf-ja" onclick="rueckfrageAntwort(true)">Ja</button>
+    </div>
+  </div>
 <script>
   var ws;
   var letzteEingabe = 0;
@@ -188,6 +209,7 @@
 
       extrasZeigen(d);
       zeitUebernehmen(d);
+      rueckfrageZeigen(d.rueckfrage);
 
       claudeZeigen(d.claude || {});
     };
@@ -237,7 +259,7 @@
 
     var sc = d.shortcut || {};
     if (letzteShortcutNr !== null && sc.nr !== letzteShortcutNr && sc.name) {
-      hinweisZeigen(sc.ok ? sc.name + " ausgel\u00F6st" : sc.name + " hat nicht geklappt", !sc.ok);
+      hinweisZeigen(sc.ok ? (sc.text || sc.name + " ausgel\u00F6st") : sc.name + " hat nicht geklappt", !sc.ok);
     }
     letzteShortcutNr = sc.nr;
   }
@@ -321,13 +343,42 @@
     el("cl-zeit").textContent = text;
   }
 
+  var rueckfrageNr = null, rueckfrageBis = 0;
+
+  function rueckfrageZeigen(r) {
+    var box = el("rueckfrage");
+    if (!r) { box.style.display = "none"; rueckfrageNr = null; return; }
+    rueckfrageNr = r.nr;
+    rueckfrageBis = Date.now() + (r.bis - r.jetzt);  // Frist nach der eigenen Uhr
+    el("rf-icon").textContent = r.icon || "\u26A0";
+    el("rf-frage").textContent = r.frage;
+    el("rf-ja").textContent = "Ja";
+    box.style.display = "flex";
+    rueckfrageZeit();
+  }
+
+  function rueckfrageZeit() {
+    if (rueckfrageNr === null) return;
+    var rest = Math.ceil((rueckfrageBis - Date.now()) / 1000);
+    if (rest <= 0) { el("rueckfrage").style.display = "none"; rueckfrageNr = null; return; }
+    el("rf-zeit").textContent = "Abbruch in " + rest + " s";
+  }
+
+  function rueckfrageAntwort(ja) {
+    var nr = rueckfrageNr;
+    el("rueckfrage").style.display = "none";
+    rueckfrageNr = null;
+    senden(ja ? "bestaetigt:" + nr : "abbruch");
+  }
+
   function hinweisZeigen(text, fehler) {
     var h = el("hinweis");
     h.textContent = text;
     h.className = fehler ? "fehler" : "";
     h.style.display = "block";
     clearTimeout(hinweisTimer);
-    hinweisTimer = setTimeout(function () { h.style.display = "none"; }, 2000);
+    // laengere Texte bleiben laenger stehen
+    hinweisTimer = setTimeout(function () { h.style.display = "none"; }, 2000 + text.length * 40);
   }
 
   function uhrAktualisieren() {
@@ -389,6 +440,7 @@
   setInterval(uhrAktualisieren, 1000);
   setInterval(zeitAnzeigen, 250);
   setInterval(claudeZeitAnzeigen, 1000);
+  setInterval(rueckfrageZeit, 500);
   verbinden();
 </script>
 </body>

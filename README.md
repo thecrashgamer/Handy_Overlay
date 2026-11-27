@@ -12,7 +12,9 @@ Von Hand geht es auch: `pip install -r requirements.txt`, dann `python server.py
 
 ## Shortcut-Tasten
 
-Die Kacheln stehen in `shortcuts.json` am PC und werden bei Änderungen automatisch neu geladen. Jeder Eintrag hat `name`, optional `icon` und entweder `programm` (Programm, Datei oder Webadresse starten) oder `tasten` (Tastenkürzel, z. B. `win+shift+s`, `ctrl+shift+esc`, `f5`, `stumm`, `playpause`). Das iPhone schickt nur die Nummer der Kachel, nie einen freien Befehl.
+Die Kacheln stehen in `shortcuts.json` am PC und werden bei Änderungen automatisch neu geladen. Jeder Eintrag hat `name`, optional `icon` und entweder `programm` (Programm, Datei oder Webadresse starten) oder `tasten` (Tastenkürzel, z. B. `win+shift+s`, `ctrl+shift+esc`, `f5`, `stumm`, `playpause`). Außerdem gibt es feste Aktionen mit `aktion`: `sperren` (Win+L lässt sich von Windows aus nicht simulieren, darum die echte Sperr-Funktion), `herunterfahren` und `herunterfahren_stoppen`. Das Herunterfahren verlangt immer eine Rückfrage auf dem iPhone, die der Server selbst prüft (10 Sekunden Zeit, nur genau für diese Kachel) und startet dann mit 15 Sekunden Verzögerung. In dieser Zeit bricht die Kachel „Herunterfahren stoppen“ es ab. Jeder andere Eintrag kann mit `"bestaetigen": true` ebenfalls eine Rückfrage bekommen.
+
+Das iPhone schickt nur die Nummer der Kachel, nie einen freien Befehl.
 
 ## Claude-Status
 

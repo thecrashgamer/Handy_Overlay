@@ -5,6 +5,12 @@ Eintrags, nie einen freien Befehl. Beispiele:
   { "name": "Rechner",  "icon": "🧮", "programm": "calc.exe" }
   { "name": "Desktop",  "icon": "🖥️", "tasten": "win+d" }
   { "name": "Webseite", "icon": "🌐", "programm": "https://example.com" }
+  { "name": "Sperren",  "icon": "🔒", "aktion": "sperren" }
+  { "name": "Aus",      "icon": "⏻",  "aktion": "herunterfahren", "frage": "PC wirklich herunterfahren?" }
+
+Aktionen (fest eingebaut): sperren, herunterfahren, herunterfahren_stoppen.
+Mit "bestaetigen": true verlangt jeder Eintrag eine Rueckfrage; "herunterfahren" tut das immer.
+Hinweis: Win+L laesst sich von Windows aus nicht simulieren, darum gibt es die Aktion "sperren".
 """
 import json
 import os
@@ -23,6 +29,10 @@ TASTEN = {
 }
 for _n in range(1, 13):
     TASTEN[f"f{_n}"] = 0x70 + _n - 1
+AKTIONEN = {"sperren", "herunterfahren", "herunterfahren_stoppen"}
+BESTAETIGEN_PFLICHT = {"herunterfahren"}
+HERUNTERFAHREN_SEKUNDEN = 15  # so lange kann man noch mit "herunterfahren_stoppen" abbrechen
+KEIN_FENSTER = 0x08000000  # CREATE_NO_WINDOW: kein aufblitzendes Konsolenfenster
 ERWEITERT = {0x2E, 0x24, 0x23, 0x21, 0x22, 0x25, 0x26, 0x27, 0x28, 0x5B}
 
 
@@ -41,7 +51,11 @@ def laden(pfad):
         if (
             isinstance(eintrag, dict)
             and isinstance(eintrag.get("name"), str)
-            and (isinstance(eintrag.get("programm"), str) or isinstance(eintrag.get("tasten"), str))
+            and (
+                isinstance(eintrag.get("programm"), str)
+                or isinstance(eintrag.get("tasten"), str)
+                or eintrag.get("aktion") in AKTIONEN
+            )
         ):
             liste.append(eintrag)
     return liste
@@ -62,8 +76,47 @@ def tasten_parsen(text):
     return codes
 
 
+def braucht_bestaetigung(eintrag):
+    return bool(eintrag.get("bestaetigen")) or eintrag.get("aktion") in BESTAETIGEN_PFLICHT
+
+
+def frage(eintrag):
+    return eintrag.get("frage") or f"\u201e{eintrag['name']}\u201c wirklich ausf\u00fchren?"
+
+
+def meldung(eintrag):
+    """Text, den das iPhone nach dem Ausloesen kurz zeigt."""
+    if eintrag.get("aktion") == "herunterfahren":
+        return f"PC f\u00e4hrt in {HERUNTERFAHREN_SEKUNDEN} Sekunden herunter. Zum Abbrechen: Herunterfahren stoppen"
+    return f"{eintrag['name']} ausgel\u00f6st"
+
+
+def shutdown_befehl():
+    return [
+        "shutdown", "/s", "/t", str(HERUNTERFAHREN_SEKUNDEN), "/c",
+        "Phonebox: Der PC faehrt gleich herunter. Abbrechen mit: shutdown /a",
+    ]
+
+
+def _aktion(name):
+    if sys.platform != "win32":
+        raise RuntimeError("Diese Aktion gibt es nur unter Windows")
+    if name == "sperren":
+        import ctypes
+
+        if not ctypes.windll.user32.LockWorkStation():
+            raise OSError("LockWorkStation ist fehlgeschlagen")
+    elif name == "herunterfahren":
+        subprocess.Popen(shutdown_befehl(), creationflags=KEIN_FENSTER)
+    elif name == "herunterfahren_stoppen":
+        # Meldet einen Fehler, wenn gar nichts lief. Das ist in Ordnung.
+        subprocess.run(["shutdown", "/a"], creationflags=KEIN_FENSTER, capture_output=True)
+
+
 def ausfuehren(eintrag):
-    if "programm" in eintrag:
+    if "aktion" in eintrag:
+        _aktion(eintrag["aktion"])
+    elif "programm" in eintrag:
         _programm_starten(eintrag["programm"], eintrag.get("argumente", []))
     else:
         _tasten_senden(tasten_parsen(eintrag["tasten"]))

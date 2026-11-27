@@ -4,5 +4,7 @@
   { "name": "Task-Manager", "icon": "📊", "tasten": "ctrl+shift+esc" },
   { "name": "Desktop",      "icon": "🖥️", "tasten": "win+d" },
   { "name": "Screenshot",   "icon": "📸", "tasten": "win+shift+s" },
-  { "name": "Sperren",      "icon": "🔒", "tasten": "win+l" }
+  { "name": "Sperren",      "icon": "🔒", "aktion": "sperren" },
+  { "name": "Herunterfahren", "icon": "⏻", "aktion": "herunterfahren", "frage": "PC wirklich herunterfahren?" },
+  { "name": "Herunterfahren stoppen", "icon": "✋", "aktion": "herunterfahren_stoppen" }
 ]

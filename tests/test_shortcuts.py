@@ -28,6 +28,31 @@ class ShortcutTests(unittest.TestCase):
         finally:
             os.unlink(f.name)
 
+    def test_aktionen(self):
+        daten = [{"name": "S", "aktion": "sperren"}, {"name": "X", "aktion": "unbekannt"},
+                 {"name": "Aus", "aktion": "herunterfahren"}]
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(daten, f)
+        try:
+            self.assertEqual([e["name"] for e in shortcuts.laden(f.name)], ["S", "Aus"])
+        finally:
+            os.unlink(f.name)
+
+    def test_bestaetigung(self):
+        self.assertTrue(shortcuts.braucht_bestaetigung({"name": "Aus", "aktion": "herunterfahren"}))
+        self.assertTrue(shortcuts.braucht_bestaetigung({"name": "A", "programm": "x", "bestaetigen": True}))
+        self.assertFalse(shortcuts.braucht_bestaetigung({"name": "Sperren", "aktion": "sperren"}))
+        self.assertFalse(shortcuts.braucht_bestaetigung({"name": "Rechner", "programm": "calc.exe"}))
+
+    def test_shutdown_befehl(self):
+        befehl = shortcuts.shutdown_befehl()
+        self.assertEqual(befehl[:4], ["shutdown", "/s", "/t", str(shortcuts.HERUNTERFAHREN_SEKUNDEN)])
+
+    def test_aktionen_nur_unter_windows(self):
+        if sys.platform != "win32":
+            with self.assertRaises(RuntimeError):
+                shortcuts.ausfuehren({"name": "S", "aktion": "sperren"})
+
     def test_standarddatei_ist_gueltig(self):
         pfad = os.path.join(os.path.dirname(__file__), "..", "shortcuts.json")
         liste = shortcuts.laden(pfad)

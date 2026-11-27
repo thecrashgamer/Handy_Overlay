@@ -20,7 +20,8 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v8 (Claude-Ansicht)"
+VERSION = "v9 (Sperren, Herunterfahren)"
+FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
 medien = medien_modul.erstellen(TEST)
@@ -34,6 +35,7 @@ zustand = {
 }
 claude_zuletzt = 0  # wann zuletzt etwas von Claude kam (ms)
 CLAUDE_ABLAUF_MS = 10 * 60 * 1000  # nach 10 Minuten Stille gilt Claude als ruhig
+zustand["rueckfrage"] = None  # wartet auf Bestaetigung: {"nr", "name", "icon", "frage", "bis"}
 shortcut_liste = []
 shortcut_stand = None  # Aenderungszeit von shortcuts.json
 
@@ -47,6 +49,14 @@ def claude_aufraeumen():
     c = zustand["claude"]
     if c["status"] in ("arbeitet", "fertig") and jetzt_ms() - claude_zuletzt > CLAUDE_ABLAUF_MS:
         c.update(status="", text="", aktion="", seit=jetzt_ms())
+        return True
+    return False
+
+
+def rueckfrage_aufraeumen():
+    r = zustand["rueckfrage"]
+    if r and jetzt_ms() > r["bis"]:
+        zustand["rueckfrage"] = None
         return True
     return False
 
@@ -73,6 +83,7 @@ def nachricht_bauen():
         "system": zustand["system"],
         "shortcuts": [{"name": e["name"], "icon": e.get("icon", "")} for e in shortcut_liste],
         "shortcut": zustand["shortcut"],
+        "rueckfrage": {**zustand["rueckfrage"], "jetzt": jetzt_ms()} if zustand["rueckfrage"] else None,
     })
 
 
@@ -93,22 +104,55 @@ async def aktualisieren():
         neu = {"spielt": False, "titel": "Fehler: " + (str(fehler) or type(fehler).__name__),
                "kuenstler": "", "cover": "", "laut": None, "dauer": 0, "position": 0}
     system = {"cpu": round(psutil.cpu_percent()), "ram": round(psutil.virtual_memory().percent)}
-    geaendert = shortcuts_neu_laden() | claude_aufraeumen()
+    geaendert = shortcuts_neu_laden() | claude_aufraeumen() | rueckfrage_aufraeumen()
     if neu != zustand["medien"] or system != zustand["system"] or geaendert:
         zustand["medien"] = neu
         zustand["system"] = system
         await an_alle_senden()
 
 
-async def shortcut_ausloesen(befehl):
-    """befehl = 'shortcut:<Nummer>'. Nur Eintraege aus shortcuts.json sind moeglich."""
+def eintrag_holen(befehl):
+    """'shortcut:3' -> (3, Eintrag). Nur Nummern aus shortcuts.json sind moeglich."""
     try:
         nummer = int(befehl.split(":", 1)[1])
         if nummer < 0:
-            return
-        eintrag = shortcut_liste[nummer]
+            return None, None
+        return nummer, shortcut_liste[nummer]
     except (ValueError, IndexError):
+        return None, None
+
+
+async def shortcut_anfragen(befehl):
+    """Antippen einer Kachel. Gefaehrliches (z. B. Herunterfahren) wird erst nach Rueckfrage ausgefuehrt."""
+    nummer, eintrag = eintrag_holen(befehl)
+    if eintrag is None:
         return
+    if shortcuts.braucht_bestaetigung(eintrag):
+        zustand["rueckfrage"] = {
+            "nr": nummer,
+            "name": eintrag["name"],
+            "icon": eintrag.get("icon", ""),
+            "frage": shortcuts.frage(eintrag),
+            "bis": jetzt_ms() + FRIST_MS,
+        }
+        await an_alle_senden()
+        return
+    await shortcut_ausfuehren(eintrag)
+
+
+async def shortcut_bestaetigt(befehl):
+    """Nur gueltig, wenn vorher genau dieser Eintrag angefragt wurde und die Frist noch laeuft."""
+    r = zustand["rueckfrage"]
+    nummer, eintrag = eintrag_holen(befehl)
+    zustand["rueckfrage"] = None
+    if not r or eintrag is None or r["nr"] != nummer or r["name"] != eintrag["name"] or jetzt_ms() > r["bis"]:
+        log("Bestaetigung abgelehnt (keine offene Rueckfrage oder abgelaufen):", befehl)
+        await an_alle_senden()
+        return
+    await shortcut_ausfuehren(eintrag)
+
+
+async def shortcut_ausfuehren(eintrag):
     ok = True
     if not TEST:  # im Testmodus nichts am Rechner ausfuehren
         try:
@@ -116,7 +160,13 @@ async def shortcut_ausloesen(befehl):
         except Exception as fehler:
             log("Shortcut fehlgeschlagen:", eintrag["name"], fehler)
             ok = False
-    zustand["shortcut"] = {"nr": zustand["shortcut"]["nr"] + 1, "name": eintrag["name"], "ok": ok}
+    zustand["shortcut"] = {
+        "nr": zustand["shortcut"]["nr"] + 1,
+        "name": eintrag["name"],
+        "ok": ok,
+        "text": shortcuts.meldung(eintrag),
+    }
+    log("Shortcut:", eintrag["name"], "ok" if ok else "FEHLER")
     await an_alle_senden()
 
 
@@ -206,7 +256,14 @@ async def verbindung(websocket: WebSocket):
         while True:
             befehl = await websocket.receive_text()
             if befehl.startswith("shortcut:"):
-                await shortcut_ausloesen(befehl)
+                await shortcut_anfragen(befehl)
+                continue
+            if befehl.startswith("bestaetigt:"):
+                await shortcut_bestaetigt(befehl)
+                continue
+            if befehl == "abbruch":
+                zustand["rueckfrage"] = None
+                await an_alle_senden()
                 continue
             try:
                 await asyncio.wait_for(medien.befehl(befehl), timeout=5)

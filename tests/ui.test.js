@@ -11,7 +11,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const server = spawn('python3', ['server.py'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT) },
+    env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT), PHONEBOX_FRIST_S: '3' },
     stdio: 'inherit',
   });
   await wait(2000);
@@ -130,6 +130,36 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.waitForFunction((n) => document.getElementById('hinweis').textContent === n + ' ausgelöst', erster);
     ok('Shortcut "' + erster + '" wird ausgeloest und bestaetigt');
     await page.screenshot({ path: (process.env.SHOT || 'phonebox.png').replace('.png', '-extras.png') });
+
+    // Herunterfahren: erst nach Rueckfrage, und der Server prueft selbst
+    const aus = page.locator('.kachel', { hasText: 'Herunterfahren' }).first();
+    await page.waitForSelector('#hinweis', { state: 'hidden' });  // Meldung der Kachel davor abwarten
+    await aus.click();
+    await page.waitForSelector('#rueckfrage', { state: 'visible' });
+    assert.strictEqual(await text('#rf-frage'), 'PC wirklich herunterfahren?');
+    assert.ok(!(await page.isVisible('#hinweis')), 'darf noch nicht ausgeloest sein');
+    await page.click('#rf-nein');
+    await wait(500);
+    assert.ok(!(await page.isVisible('#rueckfrage')) && !(await page.isVisible('#hinweis')));
+    ok('Herunterfahren: Abbrechen loest nichts aus');
+    await page.evaluate(() => ws.send('bestaetigt:6'));  // Bestaetigung ohne Rueckfrage
+    await wait(700);
+    assert.ok(!(await page.isVisible('#hinweis')), 'Server hat unaufgeforderte Bestaetigung angenommen');
+    ok('Herunterfahren: Bestaetigung ohne Rueckfrage wird vom Server abgelehnt');
+    await aus.click();
+    await page.waitForSelector('#rueckfrage', { state: 'visible' });
+    await wait(3800);  // Frist (im Test 3 s) laeuft ab
+    assert.ok(!(await page.isVisible('#rueckfrage')), 'Rueckfrage laeuft nicht ab');
+    await page.evaluate(() => ws.send('bestaetigt:6'));
+    await wait(700);
+    assert.ok(!(await page.isVisible('#hinweis')), 'abgelaufene Bestaetigung angenommen');
+    ok('Herunterfahren: Rueckfrage laeuft ab, danach ist Bestaetigen wirkungslos');
+    await aus.click();
+    await page.waitForSelector('#rueckfrage', { state: 'visible' });
+    await page.screenshot({ path: (process.env.SHOT || 'phonebox.png').replace('.png', '-frage.png') });
+    await page.click('#rf-ja');
+    await page.waitForFunction(() => document.getElementById('hinweis').textContent.includes('herunter'));
+    ok('Herunterfahren: nach "Ja" wird es ausgeloest und gemeldet');
     await page.reload();
     assert.ok(await page.isVisible('#extras'), 'Ansicht wird nicht gemerkt');
     ok('Ansicht wird nach dem Neuladen gemerkt');
@@ -143,7 +173,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
     const neu = spawn('python3', ['server.py'], {
       cwd: path.join(__dirname, '..'),
-      env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT) },
+      env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT), PHONEBOX_FRIST_S: '3' },
       stdio: 'inherit',
     });
     await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('Verbunden'), null, { timeout: 15000 });
