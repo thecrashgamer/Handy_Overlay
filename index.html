@@ -67,6 +67,9 @@
     .akku { margin-top: 4px; font-size: 12px; }
     .akku .balken { height: 4px; margin-top: 2px; }
   }
+  #blitz { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 60; pointer-events: none; opacity: 0; }
+  #blitz.an { animation: blitzen .9s ease-out; }
+  @keyframes blitzen { 0% { opacity: .0; } 12% { opacity: .55; } 100% { opacity: 0; } }
   #sb-akku { display: none; margin-top: 12px; font-size: 14px; color: #8a4a4a; }
   .messung { text-align: left; margin-top: 10px; font-size: 14px; color: #b3b3b3; }
   .balken { height: 10px; background: #282828; border-radius: 5px; margin-top: 4px; overflow: hidden; }
@@ -213,6 +216,7 @@
   <button id="schlaf" onclick="standbyEin()" title="Standby">&#127769;</button>
   <button id="wechsel" onclick="ansichtWechseln()">&#9638;</button>
   <div id="hinweis"></div>
+  <div id="blitz"></div>
   <div id="standby">
     <div id="sb-uhr">--:--</div>
     <div id="sb-datum"></div>
@@ -262,7 +266,7 @@
   }
 
   var ws;
-  var SEITE = "v21";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v22";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -454,6 +458,11 @@
     claudeVersatz = c.jetzt ? Date.now() - c.jetzt : 0;  // Zeitunterschied zum PC ausgleichen
     var status = c.status || "";
     if (status === "wartet" && claudeVorher !== "wartet" && standbyAn) standbyAus();  // Claude braucht dich
+    if (claudeInit) {  // nicht beim ersten Laden der Seite: der Zustand von vorhin ist kein neues Ereignis
+      if (status === "fertig" && claudeVorher === "arbeitet") claudeSignal("fertig");
+      else if (status === "wartet" && claudeVorher !== "wartet") claudeSignal("wartet");
+    }
+    claudeInit = true;
     claudeVorher = status;
 
     var banner = el("claude");
@@ -678,8 +687,57 @@
   setInterval(zeitAnzeigen, 250);
   setInterval(claudeZeitAnzeigen, 1000);
   setInterval(rueckfrageZeit, 500);
+  // ---- Signal bei "Claude ist fertig" und "Claude braucht dich": kurzer Ton, Blitz, auf Android auch Vibration.
+  // Der Ton geht erst, nachdem man die Seite einmal angetippt hat (iOS verlangt das fuer jeden Ton im Browser).
+  function signalEinstellung() {
+    try { return localStorage.getItem("phonebox-claude-signal") || "ton"; } catch (e) { return "ton"; }
+  }
+
+  function audioEntsperren() {
+    try {
+      var Klasse = window.AudioContext || window.webkitAudioContext;
+      if (!Klasse) return;
+      if (!audio) audio = new Klasse();
+      if (audio.state === "suspended" && audio.resume) audio.resume();
+    } catch (e) {}
+  }
+  ["touchstart", "pointerdown", "mousedown", "keydown"].forEach(function (n) { document.addEventListener(n, audioEntsperren, true); });
+
+  var SIGNAL_TOENE = { fertig: [[660, 120], [0, 40], [880, 180]], wartet: [[880, 110], [0, 70], [880, 110], [0, 70], [880, 110]] };
+
+  function claudeSignal(art) {
+    var einst = signalEinstellung();
+    if (einst === "aus") return;
+    var blitz = el("blitz");
+    blitz.style.background = art === "fertig" ? "#1db954" : "#3b82f6";
+    blitz.classList.remove("an");
+    void blitz.offsetWidth;  // Animation neu starten
+    blitz.classList.add("an");
+    try { if (navigator.vibrate) navigator.vibrate(art === "fertig" ? [120, 60, 180] : [100, 60, 100, 60, 100]); } catch (e) {}
+    if (einst !== "ton" || !audio) return;
+    try {
+      var t = audio.currentTime + 0.02;
+      SIGNAL_TOENE[art].forEach(function (n) {
+        if (n[0] > 0) {
+          var o = audio.createOscillator(), g = audio.createGain();
+          o.type = "sine";
+          o.frequency.value = n[0];
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(0.18, t + 0.015);  // weich ein- und ausblenden: kein Knacken
+          g.gain.exponentialRampToValueAtTime(0.0001, t + n[1] / 1000);
+          o.connect(g);
+          g.connect(audio.destination);
+          o.start(t);
+          o.stop(t + n[1] / 1000 + 0.02);
+        }
+        t += n[1] / 1000;
+      });
+    } catch (e) {}
+  }
+
   // ---- Standby
-  var letzteAktion = Date.now(), standbyAn = false, letzteNachricht = null, verbunden = false, claudeVorher = "";
+  var letzteAktion = Date.now(), standbyAn = false, letzteNachricht = null, verbunden = false, claudeVorher = "", claudeInit = false;
+  var audio = null;
   var sbCoverId = "";
 
   function standbySekunden() {

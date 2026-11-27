@@ -70,6 +70,14 @@
       <option value="30">Nach 30 Minuten</option>
       <option value="60">Nach 1 Stunde</option>
     </select>
+    <label for="signal" style="margin-top:14px">Wenn Claude fertig ist oder dich braucht</label>
+    <select id="signal" onchange="signalSpeichern()">
+      <option value="ton">Ton und Blitz</option>
+      <option value="blitz">Nur Blitz (still)</option>
+      <option value="aus">Nichts</option>
+    </select>
+    <button class="knopf zweit" type="button" onclick="signalTesten()">Ton testen</button>
+    <div class="hinweis" style="margin-top:8px">Am iPhone kommt der Ton erst, nachdem du die Phonebox einmal angetippt hast, und Vibration gibt es dort nicht (der Blitz ersetzt sie). Auf Android vibriert das Gerät zusätzlich.</div>
     <div class="hinweis" style="margin-top:8px">Ein Tipp weckt die Phonebox wieder auf. Auch eine Rückfrage oder „Claude braucht dich“ weckt sie auf. Die Einstellung gilt nur für dieses Gerät. Die Helligkeit des Bildschirms kann eine Webseite nicht ändern: Stell dafür am iPhone die Automatische Sperre auf „Nie“ und die Helligkeit nach Wunsch ein.</div>
   </div>
 
@@ -238,6 +246,28 @@
       .catch(function (f) { meldung("m-admin", f.message, "fehler"); });
   }
 
+  function signalSpeichern() {
+    try { localStorage.setItem("phonebox-claude-signal", el("signal").value); } catch (e) {}
+  }
+
+  function signalTesten() {
+    try {
+      var Klasse = window.AudioContext || window.webkitAudioContext;
+      var a = new Klasse(), t = a.currentTime + 0.02;
+      [[660, 120], [0, 40], [880, 180]].forEach(function (n) {
+        if (n[0] > 0) {
+          var o = a.createOscillator(), g = a.createGain();
+          o.frequency.value = n[0];
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(0.18, t + 0.015);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + n[1] / 1000);
+          o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + n[1] / 1000 + 0.02);
+        }
+        t += n[1] / 1000;
+      });
+    } catch (e) {}
+  }
+
   function standbySpeichern() {
     try { localStorage.setItem("phonebox-standby", el("standby").value); } catch (e) {}
   }
@@ -246,6 +276,9 @@
     var wert = "10";
     try { wert = localStorage.getItem("phonebox-standby") || "10"; } catch (e) {}
     el("standby").value = wert;
+    var sig = "ton";
+    try { sig = localStorage.getItem("phonebox-claude-signal") || "ton"; } catch (e) {}
+    el("signal").value = sig;
   })();
 
   laden();

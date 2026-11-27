@@ -1,88 +1,85 @@
-"""Meldet an die Phonebox, woran Claude Code gerade arbeitet.
+"""Python-Variante des Phonebox-Hooks. Leitet ein Ereignis von Claude Code an die Phonebox weiter.
 
-Wird von den Claude-Code-Hooks aufgerufen (Beispiel: settings-beispiel.json). Claude Code
-liefert das Ereignis als JSON auf stdin; daraus wird ein kurzer deutscher Satz wie
-"Bearbeitet server.py". Es werden nur Dateinamen und Beschreibungen gesendet, nie der
-Inhalt von Dateien oder ganze Befehle.
+Normalerweise brauchst du das nicht: Die Einrichtung im Admin-Bereich nutzt Hooks vom Typ "http", die ganz ohne Python
+auskommen. Diese Variante ist der Ersatz, falls dein Claude Code keine http-Hooks kennt.
 
-Die Adresse laesst sich mit PHONEBOX_URL aendern. Fehler werden still geschluckt, damit ein
-ausgeschalteter Phonebox-Server Claude Code nie ausbremst.
+  python claude_status.py                         das Ereignis kommt von Claude Code auf stdin
+  python claude_status.py --test                  schickt eine Testmeldung und zeigt, ob sie ankam
+  python claude_status.py arbeitet|fertig|wartet  von Hand eine Meldung schicken
+
+Jeder Aufruf steht kurz in daten/claude-hook.log, damit man sieht, ob Claude Code den Hook startet. Fehler bremsen Claude
+Code nie: Ist die Phonebox aus, endet das Skript still mit Code 0.
 """
 import json
 import os
 import sys
+import time
 import urllib.request
+from pathlib import Path
 
-URL = os.environ.get("PHONEBOX_URL", "http://localhost:8000/claude")
-
-
-def kurz(text, laenge=70):
-    text = " ".join(str(text).split())
-    return text if len(text) <= laenge else text[: laenge - 1] + "\u2026"
+DATEN = Path(__file__).resolve().parent.parent / "daten"
+LOG = DATEN / "claude-hook.log"
 
 
-def beschreibe(werkzeug, eingabe):
-    datei = os.path.basename(eingabe.get("file_path") or eingabe.get("notebook_path") or "")
-    if werkzeug == "Read":
-        return f"Liest {datei}"
-    if werkzeug in ("Edit", "MultiEdit", "NotebookEdit"):
-        return f"Bearbeitet {datei}"
-    if werkzeug == "Write":
-        return f"Schreibt {datei}"
-    if werkzeug == "Bash":
-        if eingabe.get("description"):
-            return kurz(eingabe["description"])
-        erstes = str(eingabe.get("command", "")).split()
-        return f"F\u00fchrt einen Befehl aus ({erstes[0]})" if erstes else "F\u00fchrt einen Befehl aus"
-    if werkzeug in ("Grep", "Glob"):
-        return f"Sucht {kurz(eingabe.get('pattern', ''), 40)}"
-    if werkzeug in ("WebSearch", "WebFetch"):
-        return "Sucht im Web"
-    if werkzeug in ("Agent", "Task"):
-        return "Startet einen Hilfsagenten"
-    if werkzeug.startswith("mcp__"):
-        return f"Nutzt {werkzeug.split('__')[-1]}"
-    return werkzeug
-
-
-def lesen():
+def basis_url():
+    if os.environ.get("PHONEBOX_URL"):  # aelterer Name: Adresse mit /claude am Ende
+        return os.environ["PHONEBOX_URL"].rsplit("/claude", 1)[0].rstrip("/")
+    port = 8000
     try:
-        roh = sys.stdin.buffer.read().decode("utf-8", "replace")
-        return json.loads(roh) if roh.strip() else {}
-    except Exception:
-        return {}
+        port = int(json.loads((DATEN / "server.json").read_text(encoding="utf-8"))["port"])  # schreibt der Server beim Start
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return f"http://127.0.0.1:{port}"
 
 
-def main():
-    daten = lesen()
-    ereignis = daten.get("hook_event_name", "")
-    projekt = os.path.basename(str(daten.get("cwd", "")).rstrip("\\/"))
-    meldung = {"projekt": projekt}
-
-    if ereignis == "UserPromptSubmit":
-        meldung.update(status="arbeitet", neu=True,
-                       aktion="Neue Aufgabe: " + kurz(daten.get("prompt", ""), 60))
-    elif ereignis == "PreToolUse":
-        meldung.update(status="arbeitet",
-                       aktion=beschreibe(daten.get("tool_name", ""), daten.get("tool_input") or {}))
-    elif ereignis == "Notification":
-        meldung.update(status="wartet", text=kurz(daten.get("message", ""), 100))
-    elif ereignis == "Stop":
-        meldung.update(status="fertig")
-    elif len(sys.argv) > 1:  # von Hand: python claude_status.py arbeitet|fertig|wartet
-        meldung.update(status=sys.argv[1])
-    else:
-        return
-
-    anfrage = urllib.request.Request(
-        URL,
-        data=json.dumps(meldung).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-    )
+def protokoll(text):
     try:
-        urllib.request.urlopen(anfrage, timeout=1).read()
-    except Exception:
+        DATEN.mkdir(exist_ok=True)
+        if LOG.exists() and LOG.stat().st_size > 60_000:  # klein halten: nur die letzten 100 Zeilen
+            LOG.write_text("\n".join(LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-100:]) + "\n", encoding="utf-8")
+        with open(LOG, "a", encoding="utf-8") as d:
+            d.write(f"{time.strftime('%d.%m. %H:%M:%S')} {text}\n")
+    except OSError:
         pass
 
 
-main()
+def senden(pfad, daten):
+    anfrage = urllib.request.Request(basis_url() + pfad, data=daten, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(anfrage, timeout=2) as antwort:
+        antwort.read()
+        return antwort.status
+
+
+def main(argv):
+    try:
+        if argv[:1] == ["--test"]:
+            ereignis = {"hook_event_name": "Notification", "notification_type": "permission_prompt",
+                        "message": "Testmeldung vom Python-Skript", "cwd": os.getcwd()}
+            status = senden("/claude-hook", json.dumps(ereignis).encode("utf-8"))
+            print(f"Gesendet an {basis_url()}: HTTP {status}. Auf dem Handy muss jetzt 'Claude braucht dich' stehen.")
+            protokoll(f"Test: HTTP {status}")
+            return 0
+        if argv and argv[0] in ("arbeitet", "fertig", "wartet"):
+            status = senden("/claude", json.dumps({"status": argv[0], "ereignis": "von Hand"}).encode("utf-8"))
+            protokoll(f"von Hand {argv[0]}: HTTP {status}")
+            return 0
+        roh = b"" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.buffer.read()
+        if not roh.strip():
+            protokoll("aufgerufen, aber ohne Ereignis auf stdin")
+            return 0
+        try:
+            name = json.loads(roh).get("hook_event_name", "?")
+        except (ValueError, AttributeError):
+            name = "?"
+        status = senden("/claude-hook", roh)
+        protokoll(f"{name}: HTTP {status}")
+    except Exception as fehler:  # nie Claude Code stoeren
+        protokoll(f"FEHLER: {fehler!r} (Phonebox erreichbar unter {basis_url()}?)")
+        if argv[:1] == ["--test"]:
+            print(f"Fehler: {fehler!r}. Laeuft die Phonebox unter {basis_url()}?")
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

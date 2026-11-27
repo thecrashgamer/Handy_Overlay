@@ -1,16 +1,60 @@
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py" } ] }
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:8000/claude-hook",
+            "timeout": 3
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "matcher": "*", "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py" } ] }
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:8000/claude-hook",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:8000/claude-hook",
+            "timeout": 3
+          }
+        ]
+      }
     ],
     "Notification": [
-      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py" } ] }
+      {
+        "matcher": "permission_prompt|elicitation_dialog|agent_needs_input",
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:8000/claude-hook",
+            "timeout": 3
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "python C:\\Phonebox\\hooks\\claude_status.py" } ] }
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:8000/claude-hook",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }
