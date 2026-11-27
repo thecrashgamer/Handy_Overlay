@@ -6,7 +6,7 @@ Ein Python-Server am Windows-PC steuert Spotify (Desktop-App) über die Windows-
 
 `start.bat` doppelklicken. Das Skript installiert die Pakete, richtet den Autostart ein, startet den Server und zeigt die Adresse fürs iPhone an. Fragt die Firewall nach, „Private Netzwerke“ erlauben.
 
-Am iPhone in Safari `http://<PC-IP>:8000` öffnen und „Zum Home-Bildschirm“ wählen.
+Am iPhone in Safari `https://<PC-IP>:8443` öffnen (die Adresse zeigt `start.bat`) und „Zum Home-Bildschirm“ wählen. Beim ersten Mal das Zertifikat installieren, siehe „HTTPS“.
 
 Von Hand geht es auch: `pip install -r requirements.txt`, dann `python server.py`.
 
@@ -22,7 +22,21 @@ Die ganze Phonebox ist durch Benutzerkonten geschützt. Ohne Anmeldung kommt man
 
 Passwörter werden mit scrypt gespeichert, Sitzungen und Codes nur als Hash. Nach 5 falschen Versuchen wird 5 Minuten gesperrt. Die Daten liegen in `daten/phonebox.db` (nicht im Git). Der Claude-Status (`/claude`) braucht keine Anmeldung, wenn er vom PC selbst kommt.
 
-Hinweis: Die Verbindung ist im Heimnetz unverschlüsselt (http). Von außerhalb nur über ein VPN wie Tailscale gehen, nie die Phonebox direkt ins Internet stellen.
+Nie die Phonebox direkt ins Internet stellen. Von außerhalb nur über ein VPN wie Tailscale (siehe „HTTPS“ zu den Namen im Zertifikat).
+
+## HTTPS
+
+Im WLAN läuft die Phonebox nur verschlüsselt (`https://<PC-IP>:8443`), damit Passwörter nicht mitgelesen werden können. Unverschlüsseltes `http` gibt es nur am PC selbst (`http://localhost:8000`), und dort ohne Warnung. Der Claude-Status und das erste Konto bleiben darüber erreichbar.
+
+Beim ersten Start legt der Server ein eigenes Zertifikat an (Ordner `daten/https`). Das Handy muss ihm einmal vertrauen:
+1. Am Handy `https://<PC-IP>:8443/zertifikat` öffnen. Die Warnung „nicht privat“ einmal bestätigen (Details → Webseite besuchen).
+2. Zertifikat laden, dann in den Einstellungen das Profil installieren.
+3. **Einstellungen → Allgemein → Info → Zertifikatsvertrauenseinstellungen:** „Phonebox Zertifikat“ einschalten. Ohne diesen Schritt bleibt die Warnung.
+4. Der Fingerabdruck auf der Seite muss zu dem im Protokoll des Servers (`/log`) passen.
+
+Ändert sich die IP-Adresse des PCs, erneuert der Server beim nächsten Start nur das Server-Zertifikat. Das Handy muss nichts neu installieren. Weitere Namen, etwa einen Tailscale-Namen, trägst du in der Umgebungsvariable `PHONEBOX_ZUSATZ_NAMEN` ein (kommagetrennt). Mit `PHONEBOX_HTTPS=0` gibt es wieder nur unverschlüsseltes http im ganzen Netz. Das ist nicht empfohlen. Klappt HTTPS nicht (z. B. fehlt `cryptography`), läuft die Phonebox nur am PC und nie unverschlüsselt im WLAN.
+
+**Wichtig:** Die Datei `daten/https/ca-key.pem` ist der geheime Schlüssel deiner Zertifizierungsstelle. Wer ihn hat, könnte Zertifikate ausstellen, denen dein Handy vertraut. Gib den Ordner `daten` nie weiter. Hast du den Verdacht, dass er geklaut wurde: Ordner `daten/https` löschen, Server neu starten, das Profil am Handy entfernen und das neue installieren.
 
 ## Shortcut-Tasten und Admin-Bereich
 
@@ -58,6 +72,7 @@ PHONEBOX_TEST=1 python server.py      # Fake-Songs statt Spotify
 node tests/ui.test.js                 # UI-Test mit Playwright
 node tests/auth.test.js               # Konten-Test
 node tests/admin.test.js              # Admin-Bereich-Test
+node tests/https.test.js              # HTTPS-Test
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
@@ -70,6 +85,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `shortcuts.py`, `shortcuts.json` | Shortcut-Logik, Prüfung und Vorlage |
 | `admin.py`, `admin.html` | Admin-Bereich für die Shortcuts |
 | `index.html` | Oberfläche fürs iPhone |
+| `zertifikate.py`, `zertifikat.html` | HTTPS: eigenes Zertifikat und Anleitung für das Handy |
 | `anmelden.html`, `konto.html` | Anmeldung, Konto und Benutzerverwaltung |
 | `auth.py`, `konten.py` | Routen und Logik der Konten |
 | `benutzer.py` | Konten am PC verwalten |

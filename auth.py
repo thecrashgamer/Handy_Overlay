@@ -50,8 +50,10 @@ def fehler_antwort(text, status=400):
     return JSONResponse({"fehler": text}, status_code=status, headers={"Cache-Control": "no-store"})
 
 
-def cookie_setzen(antwort, token, dauer):
-    antwort.set_cookie(COOKIE, token, httponly=True, samesite="lax", path="/", max_age=dauer)
+def cookie_setzen(antwort, token, dauer, request):
+    # Secure: der Browser schickt das Cookie nur ueber verschluesselte Verbindungen (bei https)
+    antwort.set_cookie(COOKIE, token, httponly=True, samesite="lax", path="/", max_age=dauer,
+                       secure=request.url.scheme == "https")
 
 
 def seite(name):
@@ -149,7 +151,7 @@ async def registrieren(ein: RegistrierenEin, request: Request):
                            headers={"Cache-Control": "no-store"})
     if benutzer["status"] == "aktiv":  # gleich angemeldet
         token, dauer = konten.sitzung_erstellen(benutzer["id"], merken=False)
-        cookie_setzen(antwort, token, dauer)
+        cookie_setzen(antwort, token, dauer, request)
     return antwort
 
 
@@ -172,7 +174,7 @@ async def anmelden(ein: AnmeldenEin, request: Request):
     log(f"Angemeldet: {benutzer['name']} von {ip}")
     antwort = JSONResponse({"ok": True, "name": benutzer["name"], "rolle": benutzer["rolle"]},
                            headers={"Cache-Control": "no-store"})
-    cookie_setzen(antwort, token, dauer)
+    cookie_setzen(antwort, token, dauer, request)
     return antwort
 
 

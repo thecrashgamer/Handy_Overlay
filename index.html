@@ -204,7 +204,7 @@
   }
 
   var ws;
-  var SEITE = "v15";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v16";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -227,7 +227,7 @@
 
   function verbinden() {
     // Die Seite nennt dem Server ihre Version, damit er eine alte Seite im Protokoll meldet
-    ws = new WebSocket("ws://" + location.host + "/ws?seite=" + SEITE);
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?seite=" + SEITE);
     ws.onopen = function () {
       el("status").textContent = "Verbunden";
     };

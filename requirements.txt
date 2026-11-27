@@ -6,3 +6,4 @@ winrt-Windows.Foundation; sys_platform == "win32"
 winrt-Windows.Storage.Streams; sys_platform == "win32"
 pycaw; sys_platform == "win32"
 psutil
+cryptography>=42

@@ -81,7 +81,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ok('Lautstaerke wird gesetzt und gemerkt');
 
     const protokoll = await (await page.request.get(`${URL}/log`)).text();
-    assert.ok(protokoll.includes('laeuft auf Port'), 'Protokoll leer');
+    assert.ok(/Phonebox-Server v\d+ .* laeuft/.test(protokoll), 'Protokoll leer');
     ok('/log zeigt das Server-Protokoll');
 
     await page.request.post(`${URL}/claude`, { data: { status: 'arbeitet' } });
