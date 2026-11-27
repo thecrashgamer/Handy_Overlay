@@ -77,6 +77,8 @@ Eine Kachel kann:
 
 Das Herunterfahren verlangt immer eine Rückfrage, die der Server selbst prüft (10 Sekunden Zeit, nur genau für diese Kachel). Danach läuft der PC mit 15 Sekunden Verzögerung herunter, und die Kachel „Herunterfahren stoppen“ bricht es ab. Jede andere Kachel kann mit „Vor dem Ausführen nachfragen“ ebenfalls eine Rückfrage bekommen.
 
+**Eigene Bilder als Symbol:** Ein Bild (PNG, JPG, SVG, WebP, GIF) lässt sich im Admin-Bereich auf eine Karte ziehen, mit Strg+V einfügen oder über „Bild wählen“ auswählen. Zieht man es in die gestrichelte Fläche unter der Liste, entsteht gleich ein neuer Shortcut mit dem Dateinamen. Der Browser wandelt jedes Bild in ein kleines PNG (128 Pixel) um, ein Skript in einem SVG verschwindet dabei. Der Server nimmt nur vollständig gültige PNG-Dateien an. Sie liegen in `daten/icons/` und werden nur Angemeldeten gezeigt. Ein Bild ersetzt das Emoji. Nicht mehr benutzte Bilder räumt der Server nach einem Tag auf.
+
 Deine Liste liegt in `daten/shortcuts.json` und bleibt bei Updates erhalten. Die mitgelieferte `shortcuts.json` ist nur die Vorlage, solange du noch nichts gespeichert hast. Vor jedem Speichern wird die alte Fassung als `shortcuts.json.bak` gesichert. Freie Befehle (Skripte, Shell) gibt es bewusst nicht. Das Handy schickt nur die Nummer der Kachel.
 
 ## Claude-Status
@@ -103,6 +105,7 @@ node tests/admin.test.js              # Admin-Bereich-Test
 node tests/https.test.js              # HTTPS-Test
 node tests/rechte.test.js             # Rechte und Aktivitätsprotokoll
 node tests/standby.test.js            # Standby-Modus
+node tests/icons.test.js              # Bilder als Symbole
 # test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
@@ -116,6 +119,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `shortcuts.py`, `shortcuts.json` | Shortcut-Logik, Prüfung und Vorlage |
 | `admin.py`, `admin.html` | Admin-Bereich für die Shortcuts |
 | `aktivitaet.html` | Aktivitätsprotokoll |
+| `icons.py` | Prüfung und Ablage der Symbolbilder |
 | `index.html` | Oberfläche fürs iPhone |
 | `zertifikate.py`, `zertifikat.html` | HTTPS: eigenes Zertifikat und Anleitung für das Handy |
 | `anmelden.html`, `konto.html` | Anmeldung, Konto und Benutzerverwaltung |

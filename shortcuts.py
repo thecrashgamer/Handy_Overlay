@@ -14,6 +14,7 @@ Hinweis: Win+L laesst sich von Windows aus nicht simulieren, darum gibt es die A
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -101,12 +102,17 @@ def pruefen(roh):
     icon = str(roh.get("icon", "")).strip()
     if len(icon) > 8 or not _ohne_steuerzeichen(icon):
         raise ValueError("Das Symbol ist zu lang, ein Emoji reicht.")
+    bild = str(roh.get("bild", "") or "").strip()
+    if bild and not re.match(r"^[0-9a-f]{16}\.png$", bild):
+        raise ValueError("Das Bild ist ungueltig.")
     arten = [k for k in ("programm", "tasten", "aktion") if roh.get(k) not in (None, "")]
     if len(arten) != 1:
         raise ValueError("Waehle genau eins: Programm, Tastenkuerzel oder Aktion.")
     eintrag = {"name": name}
     if icon:
         eintrag["icon"] = icon
+    if bild:
+        eintrag["bild"] = bild  # Bild gewinnt gegen das Emoji
     art = arten[0]
     if art == "programm":
         programm = str(roh["programm"]).strip()

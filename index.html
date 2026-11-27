@@ -52,6 +52,7 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
   .kachel .symbol { font-size: 26px; line-height: 1; }
   .kachel.gesperrt { opacity: .4; }
+  .kachel img.bildsymbol { width: 30px; height: 30px; object-fit: contain; }
   button:disabled { opacity: .35; }
   #ohnemusik { display: none; color: #f5a623; font-size: 13px; margin-top: 10px; }
   #keine { color: #b3b3b3; max-width: 280px; }
@@ -232,7 +233,7 @@
   }
 
   var ws;
-  var SEITE = "v18";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v19";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -354,7 +355,15 @@
         b.className = "kachel" + (eintrag.erlaubt === false ? " gesperrt" : "");
         var symbol = document.createElement("span");
         symbol.className = "symbol";
-        symbol.textContent = eintrag.erlaubt === false ? "\uD83D\uDD12" : (eintrag.icon || "\u25B6");
+        if (eintrag.bild && eintrag.erlaubt !== false) {
+          var bildchen = document.createElement("img");
+          bildchen.className = "bildsymbol";
+          bildchen.alt = "";
+          bildchen.src = "/icons/" + encodeURIComponent(eintrag.bild);
+          symbol.appendChild(bildchen);
+        } else {
+          symbol.textContent = eintrag.erlaubt === false ? "\uD83D\uDD12" : (eintrag.icon || "\u25B6");
+        }
         var name = document.createElement("span");
         name.textContent = eintrag.name;
         b.appendChild(symbol);
