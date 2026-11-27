@@ -24,6 +24,10 @@ Die Zeit stellst du **pro Gerät** unter Konto → „Anzeige auf diesem Gerät�
 - `python update.py --zurueck` stellt die Dateien der letzten Sicherung wieder her.
 - `python update.py --quelle <Adresse oder ZIP-Datei>` nimmt eine andere Quelle.
 
+**Update per Knopf:** Im Admin-Bereich (`/admin`, ganz unten „System und Update“) kannst du nach einer neuen Version suchen und sie mit einem Klick einspielen, ohne `update.bat`. Das braucht dein Passwort. Der Server startet dabei etwa eine halbe Minute neu, die Seite zeigt den Fortschritt und lädt danach neu. Konten, Shortcuts, Bilder und deine Anmeldung bleiben erhalten. Dort gibt es auch „Zur letzten Sicherung zurückkehren“. Start und Ergebnis stehen im Aktivitätsprotokoll. Es läuft immer nur ein Update gleichzeitig, und schlägt eines fehl (z. B. kein Internet), läuft der Server unverändert weiter.
+
+**Wichtig:** Ein Update führt Code aus deinem GitHub-Repository auf deinem PC aus. Sichere deshalb dein GitHub-Konto mit Zwei-Faktor-Anmeldung. Die Quelle ist fest eingebaut und lässt sich nicht über die Webseite ändern (nur über die Umgebungsvariable `PHONEBOX_UPDATE_QUELLE` des Servers).
+
 Aus Sicherheitsgründen akzeptiert das Skript keine ZIP-Dateien mit unsicheren Pfaden (`../`), Verknüpfungen oder ohne `server.py`, und es beendet nur Prozesse, die `server.py` auf den Phonebox-Ports ausführen.
 
 ## Konten und Anmeldung
@@ -77,6 +81,8 @@ Eine Kachel kann:
 
 Das Herunterfahren verlangt immer eine Rückfrage, die der Server selbst prüft (10 Sekunden Zeit, nur genau für diese Kachel). Danach läuft der PC mit 15 Sekunden Verzögerung herunter, und die Kachel „Herunterfahren stoppen“ bricht es ab. Jede andere Kachel kann mit „Vor dem Ausführen nachfragen“ ebenfalls eine Rückfrage bekommen.
 
+**Eigene Bilder als Symbol:** Ein Bild (PNG, JPG, SVG, WebP, GIF) lässt sich im Admin-Bereich auf eine Karte ziehen, mit Strg+V einfügen oder über „Bild wählen“ auswählen. Zieht man es in die gestrichelte Fläche unter der Liste, entsteht gleich ein neuer Shortcut mit dem Dateinamen. Der Browser wandelt jedes Bild in ein kleines PNG (128 Pixel) um, ein Skript in einem SVG verschwindet dabei. Der Server nimmt nur vollständig gültige PNG-Dateien an. Sie liegen in `daten/icons/` und werden nur Angemeldeten gezeigt. Ein Bild ersetzt das Emoji. Nicht mehr benutzte Bilder räumt der Server nach einem Tag auf.
+
 Deine Liste liegt in `daten/shortcuts.json` und bleibt bei Updates erhalten. Die mitgelieferte `shortcuts.json` ist nur die Vorlage, solange du noch nichts gespeichert hast. Vor jedem Speichern wird die alte Fassung als `shortcuts.json.bak` gesichert. Freie Befehle (Skripte, Shell) gibt es bewusst nicht. Das Handy schickt nur die Nummer der Kachel.
 
 ## Claude-Status
@@ -103,6 +109,8 @@ node tests/admin.test.js              # Admin-Bereich-Test
 node tests/https.test.js              # HTTPS-Test
 node tests/rechte.test.js             # Rechte und Aktivitätsprotokoll
 node tests/standby.test.js            # Standby-Modus
+node tests/icons.test.js              # Bilder als Symbole
+node tests/adminupdate.test.js        # Update per Knopf (mit echtem Neustart, dauert etwas)
 # test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
@@ -116,6 +124,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `shortcuts.py`, `shortcuts.json` | Shortcut-Logik, Prüfung und Vorlage |
 | `admin.py`, `admin.html` | Admin-Bereich für die Shortcuts |
 | `aktivitaet.html` | Aktivitätsprotokoll |
+| `icons.py` | Prüfung und Ablage der Symbolbilder |
 | `index.html` | Oberfläche fürs iPhone |
 | `zertifikate.py`, `zertifikat.html` | HTTPS: eigenes Zertifikat und Anleitung für das Handy |
 | `anmelden.html`, `konto.html` | Anmeldung, Konto und Benutzerverwaltung |

@@ -27,7 +27,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v18 (Standby)"
+VERSION = "v20 (Update im Admin)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -120,8 +120,8 @@ def nachricht_bauen(benutzer):
         "claude": {**zustand["claude"], "jetzt": jetzt_ms()},
         "system": zustand["system"],
         "rechte": r,
-        "shortcuts": [{"name": e["name"], "icon": e.get("icon", ""), "erlaubt": shortcuts.darf_ausloesen(e, r)}
-                      for e in shortcut_liste],
+        "shortcuts": [{"name": e["name"], "icon": e.get("icon", ""), "bild": e.get("bild", ""),
+                       "erlaubt": shortcuts.darf_ausloesen(e, r)} for e in shortcut_liste],
         "shortcut": zustand["shortcut"],
         "rueckfrage": {**{k: v for k, v in eigene_frage.items() if k != "von"}, "jetzt": jetzt_ms()} if eigene_frage else None,
     })
@@ -484,6 +484,7 @@ async def laufen():
         if getattr(signal, name, None):
             signal.signal(getattr(signal, name), beenden)
 
+    admin.status_protokollieren(konten)  # Ergebnis eines Updates, das diesen Neustart ausgeloest hat
     aufgabe = asyncio.create_task(schleife())
     log(f"Phonebox-Server {VERSION} laeuft" + (" (Testmodus)" if TEST else ""))
     adressen_zeigen(info)

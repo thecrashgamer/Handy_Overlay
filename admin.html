@@ -38,6 +38,13 @@
   .kachel { background: #282828; border-radius: 14px; height: 76px; display: flex; flex-direction: column;
             align-items: center; justify-content: center; gap: 4px; font-size: 12px; text-align: center; padding: 4px; overflow: hidden; }
   .kachel .sym { font-size: 24px; line-height: 1; }
+  .kachel img.bild, .iconknopf img { width: 28px; height: 28px; object-fit: contain; display: block; margin: 0 auto; }
+  .karte.ziehen { outline: 2px dashed #1db954; background: #17261d; }
+  .bildzeile { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .bildzeile .hinweis { flex: 1 1 200px; margin: 0; }
+  #neuzone { margin-top: 10px; border: 2px dashed #3a3a3a; border-radius: 14px; padding: 18px; text-align: center;
+             color: #8a8a8a; font-size: 14px; }
+  #neuzone.ziehen { border-color: #1db954; color: #7ee2a0; background: #17261d; }
   .leiste { position: fixed; left: 0; right: 0; bottom: 0; background: #1c1c1c; border-top: 1px solid #333; padding: 12px 16px; z-index: 5; }
   .leiste .innen { max-width: 760px; margin: 0 auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .leiste input { flex: 1; min-width: 150px; }
@@ -51,6 +58,15 @@
   #emoji button:hover { background: #3a3a3a; }
   #emoji .eigen { grid-column: 1 / -1; display: flex; gap: 6px; }
   .aufnahme { background: #5a1d20 !important; }
+  .system { margin-top: 26px; }
+  .system .zeile2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .system input[type=password] { flex: 1 1 180px; }
+  .upd-ergebnis { margin-top: 10px; font-size: 14px; line-height: 1.45; }
+  .upd-neu { color: #7ee2a0; font-weight: bold; }
+  #upd-log { background: #0c0c0c; color: #9a9a9a; border-radius: 8px; padding: 10px; font-size: 12px; max-height: 190px;
+             overflow: auto; white-space: pre-wrap; word-break: break-word; margin-top: 10px; }
+  #upd-fortschritt { margin-top: 10px; color: #f5a623; }
+  details.ausklapp summary { cursor: pointer; color: #8a8a8a; font-size: 13px; margin-top: 12px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -74,6 +90,33 @@
       <option value="">+ Aus Vorlage hinzufügen ...</option>
     </select>
   </div>
+  <div id="neuzone">Bild hierher ziehen, um daraus einen neuen Shortcut anzulegen</div>
+  <div class="karte system" id="system">
+    <h2 style="margin-top:0">System und Update</h2>
+    <div>Installiert: <b id="upd-installiert">...</b></div>
+    <div class="upd-ergebnis" id="upd-ergebnis"></div>
+    <div class="zeile2">
+      <button class="knopf zweit" id="upd-pruefen" onclick="updatePruefen(true)">Nach Updates suchen</button>
+    </div>
+    <div id="upd-aktion" hidden>
+      <div class="zeile2">
+        <input type="password" id="upd-pw" placeholder="Zum Aktualisieren: dein Passwort" autocomplete="current-password">
+        <button class="knopf" id="upd-start" onclick="updateStarten(false)">Jetzt aktualisieren</button>
+      </div>
+      <div class="hinweis" style="margin-top:6px">Der Server startet dabei kurz neu (etwa eine halbe Minute). Deine Konten, Shortcuts und Bilder bleiben erhalten, die alten Dateien werden vorher gesichert.</div>
+    </div>
+    <details class="ausklapp">
+      <summary>Zur letzten Sicherung zurückkehren</summary>
+      <div class="zeile2">
+        <input type="password" id="upd-pw2" placeholder="Dein Passwort" autocomplete="current-password">
+        <button class="knopf zweit" onclick="updateStarten(true)">Alte Dateien wiederherstellen</button>
+      </div>
+    </details>
+    <div id="upd-fortschritt" hidden></div>
+    <pre id="upd-log" hidden></pre>
+    <div class="meldung" id="upd-meldung" role="alert"></div>
+  </div>
+
   <p class="hinweis">Am PC ausgeführt wird nur, was hier steht. Das Handy schickt nur die Nummer der Kachel. Die Reihenfolge hier ist die Reihenfolge am Handy.</p>
 </div>
 
@@ -130,6 +173,50 @@
     return e;
   }
 
+  // ---- Bilder: im Browser in ein kleines PNG umwandeln (so sind auch SVG, JPG, WebP, GIF moeglich), der Server prueft es nochmal
+  var BILD_KANTE = 128;
+
+  function bildZuPng(datei) {
+    return new Promise(function (ok, fehl) {
+      if (!datei || !/^image\//.test(datei.type || "")) { fehl(new Error("Das ist kein Bild: " + ((datei && datei.name) || "?"))); return; }
+      if (datei.size > 8 * 1024 * 1024) { fehl(new Error("Das Bild ist größer als 8 MB.")); return; }
+      var url = URL.createObjectURL(datei), img = new Image();
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth || BILD_KANTE, hh = img.naturalHeight || BILD_KANTE;  // SVG ohne Groesse
+          var faktor = Math.min(BILD_KANTE / w, BILD_KANTE / hh);
+          var bw = Math.max(1, Math.round(w * faktor)), bh = Math.max(1, Math.round(hh * faktor));
+          var c = document.createElement("canvas");
+          c.width = BILD_KANTE; c.height = BILD_KANTE;
+          c.getContext("2d").drawImage(img, (BILD_KANTE - bw) / 2, (BILD_KANTE - bh) / 2, bw, bh);
+          ok(c.toDataURL("image/png").split(",")[1]);
+        } catch (e) { fehl(new Error("Das Bild konnte nicht umgewandelt werden.")); }
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); fehl(new Error("Das Bild konnte nicht gelesen werden: " + datei.name)); };
+      img.src = url;
+    });
+  }
+
+  function bildHochladen(datei) {
+    return bildZuPng(datei).then(function (base64) { return anfrage("POST", "/api/icons", { daten: base64 }); })
+      .then(function (a) { return a.name; });
+  }
+
+  function bildSetzen(f, datei) {
+    meldung("Bild wird hochgeladen ...", "ok");
+    return bildHochladen(datei).then(function (name) {
+      f.bild = name;
+      meldung("");
+      zeichnen();
+    }).catch(function (fehler) { meldung(fehler.message, "fehler"); });
+  }
+
+  function ersteBilddatei(liste) {
+    for (var i = 0; liste && i < liste.length; i++) if (/^image\//.test(liste[i].type || "")) return liste[i];
+    return null;
+  }
+
   function meldung(text, art) {
     var m = el("meldung");
     m.textContent = text || "";
@@ -151,7 +238,7 @@
   // ---- Umwandeln zwischen Server-Form und Formular-Form
   function ausServer(e) {
     return {
-      name: e.name || "", icon: e.icon || "",
+      name: e.name || "", icon: e.icon || "", bild: e.bild || "",
       art: e.programm !== undefined ? "programm" : e.tasten !== undefined ? "tasten" : "aktion",
       programm: e.programm || "", argumente: (e.argumente || []).map(function (a) { return /\s/.test(a) ? '"' + a + '"' : a; }).join(" "),
       tasten: e.tasten || "", aktion: e.aktion || "sperren",
@@ -168,6 +255,7 @@
   function zuServer(f) {
     var e = { name: f.name.trim() };
     if (f.icon.trim()) e.icon = f.icon.trim();
+    if (f.bild) e.bild = f.bild;
     if (f.art === "programm") {
       e.programm = f.programm.trim();
       var a = argumenteLesen(f.argumente);
@@ -197,7 +285,8 @@
     if (!liste.length) v.appendChild(h("div", { class: "hinweis", text: "Noch keine Shortcuts." }));
     liste.forEach(function (f) {
       v.appendChild(h("div", { class: "kachel" }, [
-        h("span", { class: "sym", text: f.icon || (f.art === "aktion" ? "⚙️" : "▶") }),
+        f.bild ? h("img", { class: "bild", src: "/icons/" + f.bild, alt: "" })
+               : h("span", { class: "sym", text: f.icon || (f.art === "aktion" ? "⚙️" : "▶") }),
         h("span", { text: f.name || "(ohne Namen)" })
       ]));
     });
@@ -210,8 +299,21 @@
   function karte(f, i) {
     var k = h("div", { class: "karte" + (i === neuerIndex ? " neu" : "") });
 
-    var iconKnopf = h("button", { class: "iconknopf", type: "button", title: "Symbol wählen", text: f.icon || "＋" });
+    var iconKnopf = h("button", { class: "iconknopf", type: "button", title: "Symbol wählen" });
+    if (f.bild) iconKnopf.appendChild(h("img", { src: "/icons/" + f.bild, alt: "" }));
+    else iconKnopf.textContent = f.icon || "＋";
     iconKnopf.onclick = function (ev) { ev.stopPropagation(); emojiOeffnen(iconKnopf, f, i); };
+    k.setAttribute("data-i", String(i));
+    k.addEventListener("dragover", function (ev) { ev.preventDefault(); k.classList.add("ziehen"); });
+    k.addEventListener("dragleave", function (ev) { if (!k.contains(ev.relatedTarget)) k.classList.remove("ziehen"); });
+    k.addEventListener("drop", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      k.classList.remove("ziehen");
+      var datei = ersteBilddatei(ev.dataTransfer && ev.dataTransfer.files);
+      if (!datei) { meldung("Zieh eine Bilddatei (PNG, JPG, SVG, WebP, GIF) auf die Karte.", "fehler"); return; }
+      bildSetzen(f, datei);
+    });
     var name = h("input", { type: "text", value: f.name, maxlength: "30", placeholder: "Name" });
     name.oninput = function () { f.name = name.value; geaendert(); };
     var hoch = h("button", { class: "klein", type: "button", title: "Nach oben", text: "↑" });
@@ -225,6 +327,16 @@
       if (confirm("Shortcut \u201E" + (f.name || "ohne Namen") + "\u201C löschen?")) { liste.splice(i, 1); neuerIndex = -1; zeichnen(); }
     };
     k.appendChild(h("div", { class: "zeile" }, [iconKnopf, h("div", { style: "flex:1" }, [h("label", { text: "Name" }), name]), hoch, runter, weg]));
+
+    var dateiwahl = h("input", { type: "file", accept: "image/*", style: "display:none" });
+    dateiwahl.onchange = function () { if (dateiwahl.files[0]) bildSetzen(f, dateiwahl.files[0]); };
+    var waehlen = h("button", { class: "klein", type: "button", text: "Bild wählen ..." });
+    waehlen.onclick = function () { dateiwahl.click(); };
+    var entfernen = h("button", { class: "klein", type: "button", text: "Bild entfernen" });
+    entfernen.disabled = !f.bild;
+    entfernen.onclick = function () { f.bild = ""; zeichnen(); };
+    k.appendChild(h("div", { class: "bildzeile" }, [waehlen, entfernen, dateiwahl,
+      h("div", { class: "hinweis", text: "Oder ein Bild auf diese Karte ziehen oder mit Strg+V einfügen. Ein Bild ersetzt das Emoji." })]));
 
     var art = h("select", {});
     [["programm", "Programm, Datei oder Webadresse starten"], ["tasten", "Tastenkürzel senden"], ["aktion", "Aktion (Sperren, Herunterfahren)"]].forEach(function (o) {
@@ -292,6 +404,13 @@
     var t = liste[a]; liste[a] = liste[b]; liste[b] = t;
     neuerIndex = -1;
     zeichnen();
+  }
+
+  function neuAusBild(datei) {
+    var name = (datei.name || "Bild").replace(/\.[^.]+$/, "").slice(0, 30) || "Bild";
+    if (liste.length >= MAXIMAL) { meldung("Mehr als " + MAXIMAL + " Shortcuts gehen nicht.", "fehler"); return Promise.resolve(); }
+    return bildHochladen(datei).then(function (n) { neu({ name: name, bild: n }); })
+      .catch(function (f) { meldung(f.message, "fehler"); });
   }
 
   function neu(vorlage) {
@@ -419,12 +538,136 @@
     }).catch(function (f) { meldung(f.message, "fehler"); });
   }
 
+  // ---- Update
+  var updateLaeuft = false;
+
+  function updMeldung(text, art) {
+    var m = el("upd-meldung");
+    m.textContent = text || "";
+    m.className = "meldung" + (text ? " " + art : "");
+  }
+
+  function updatePruefen(neu) {
+    updMeldung("");
+    el("upd-pruefen").disabled = true;
+    el("upd-ergebnis").textContent = "Frage GitHub ...";
+    return anfrage("GET", "/api/update/pruefen" + (neu ? "?neu=1" : "")).then(function (a) {
+      el("upd-installiert").textContent = a.installiert;
+      var box = el("upd-ergebnis");
+      box.textContent = "";
+      if (a.neu) {
+        box.appendChild(h("div", { class: "upd-neu", text: "Neue Version verfügbar: " + a.neueste }));
+        if (a.aenderung) box.appendChild(h("div", { class: "hinweis", text: "Zuletzt geändert: " + a.aenderung }));
+      } else {
+        box.appendChild(h("div", { text: "Du hast die neueste Version (" + a.neueste + ")." }));
+      }
+      el("upd-aktion").hidden = false;
+      el("upd-start").textContent = a.neu ? "Jetzt aktualisieren" : "Trotzdem neu installieren";
+    }).catch(function (f) {
+      el("upd-ergebnis").textContent = "";
+      updMeldung(f.message, "fehler");
+    }).then(function () { el("upd-pruefen").disabled = false; });
+  }
+
+  function updateStarten(zurueck) {
+    if (stand() !== original) { updMeldung("Speichere oder verwirf zuerst deine Änderungen an den Shortcuts.", "fehler"); return; }
+    var pw = el(zurueck ? "upd-pw2" : "upd-pw").value;
+    if (!pw) { updMeldung("Gib dein Passwort ein.", "fehler"); return; }
+    if (!confirm(zurueck ? "Die Dateien der letzten Sicherung wiederherstellen? Der Server startet kurz neu."
+                         : "Jetzt aktualisieren? Der Server startet dabei kurz neu.")) return;
+    updMeldung("");
+    anfrage("POST", "/api/update/starten", { passwort: pw, zurueck: !!zurueck }).then(function () {
+      el("upd-pw").value = el("upd-pw2").value = "";
+      updateBeobachten();
+    }).catch(function (f) { updMeldung(f.message, "fehler"); });
+  }
+
+  // Waehrend der Server neu startet, antwortet er kurz nicht: das ist normal und kein Fehler
+  function updateBeobachten() {
+    updateLaeuft = true;
+    el("upd-fortschritt").hidden = false;
+    el("upd-log").hidden = false;
+    el("upd-start").disabled = true;
+    var versuche = 0;
+    (function runde() {
+      fetch("/api/update/status", { credentials: "same-origin", headers: { "X-Phonebox": "1" } }).then(function (r) {
+        if (r.status === 401 || r.status === 403) { location.href = "/anmelden"; return null; }
+        return r.ok ? r.json() : null;
+      }).then(function (d) {
+        versuche = d ? 0 : versuche + 1;
+        if (d) {
+          el("upd-log").textContent = (d.zeilen || []).join("\n");
+          el("upd-log").scrollTop = el("upd-log").scrollHeight;
+        }
+        if (!d) {
+          el("upd-fortschritt").textContent = "Der Server startet neu ...";
+          if (versuche > 60) { el("upd-fortschritt").textContent = ""; updMeldung("Der Server antwortet nicht mehr. Starte ihn am PC mit python server.py.", "fehler"); updateLaeuft = false; return; }
+        } else if (d.zustand === "laeuft") {
+          el("upd-fortschritt").textContent = "Das Update läuft ...";
+        } else {
+          updateLaeuft = false;
+          el("upd-fortschritt").textContent = "";
+          el("upd-start").disabled = false;
+          if (d.zustand === "fertig") {
+            updMeldung("Fertig: " + (d.von || "?") + " → " + (d.nach || d.installiert) + ". Die Seite lädt gleich neu.", "ok");
+            setTimeout(function () { location.reload(); }, 2500);
+          } else if (d.zustand === "nichts") {
+            updMeldung("Schon auf dem neuesten Stand. Es wurde nichts geändert.", "ok");
+          } else {
+            updMeldung("Fehlgeschlagen: " + (d.meldung || "unbekannter Fehler"), "fehler");
+          }
+          return;
+        }
+        setTimeout(runde, 1500);
+      }).catch(function () {
+        versuche++;
+        el("upd-fortschritt").textContent = "Der Server startet neu ...";
+        if (versuche > 60) { el("upd-fortschritt").textContent = ""; updMeldung("Der Server antwortet nicht mehr. Starte ihn am PC mit python server.py.", "fehler"); updateLaeuft = false; return; }
+        setTimeout(runde, 1500);
+      });
+    })();
+  }
+
+  function updateStartAnsicht() {
+    anfrage("GET", "/api/update/status").then(function (d) {
+      el("upd-installiert").textContent = d.installiert || "?";
+      if (d.zustand === "laeuft") { updateBeobachten(); return; }
+      if (d.zustand === "fertig" || d.zustand === "fehler") {
+        var wann = d.zeit ? new Date(d.zeit * 1000).toLocaleString("de-DE") : "";
+        el("upd-ergebnis").textContent = "Letzte Aktion (" + wann + "): " + (d.zustand === "fertig" ? (d.von + " → " + (d.nach || "?")) : "fehlgeschlagen: " + (d.meldung || ""));
+      }
+    }).catch(function () {});
+  }
+
+  // Ein Bild, das irgendwo neben einer Karte losgelassen wird, darf den Browser nicht wegnavigieren lassen
+  ["dragover", "drop"].forEach(function (n) { window.addEventListener(n, function (ev) { ev.preventDefault(); }); });
+  var zone = el("neuzone");
+  zone.addEventListener("dragover", function (ev) { ev.preventDefault(); zone.classList.add("ziehen"); });
+  zone.addEventListener("dragleave", function () { zone.classList.remove("ziehen"); });
+  zone.addEventListener("drop", function (ev) {
+    ev.preventDefault();
+    zone.classList.remove("ziehen");
+    var dateien = Array.prototype.filter.call((ev.dataTransfer && ev.dataTransfer.files) || [], function (d) { return /^image\//.test(d.type || ""); });
+    if (!dateien.length) { meldung("Das waren keine Bilder.", "fehler"); return; }
+    dateien.reduce(function (kette, d) { return kette.then(function () { return neuAusBild(d); }); }, Promise.resolve());
+  });
+  // Strg+V: ein kopiertes Bild (z. B. ein Screenshot) kommt in die Karte, in der man gerade tippt
+  document.addEventListener("paste", function (ev) {
+    var datei = ersteBilddatei(ev.clipboardData && ev.clipboardData.files);
+    if (!datei) return;
+    ev.preventDefault();
+    var karte = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".karte[data-i]") : null;
+    if (karte) bildSetzen(liste[Number(karte.getAttribute("data-i"))], datei);
+    else neuAusBild(datei);
+  });
+
   VORLAGEN.forEach(function (v, i) { el("vorlage").appendChild(h("option", { value: String(i), text: (v.icon + " " + v.name) })); });
   window.addEventListener("beforeunload", function (ev) {
     if (stand() !== original) { ev.preventDefault(); ev.returnValue = ""; }
   });
   el("pw").addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !el("speichern").disabled) speichern(); });
   laden();
+  updateStartAnsicht();
 </script>
 </body>
 </html>

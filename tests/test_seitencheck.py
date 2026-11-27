@@ -22,5 +22,17 @@ class SeitencheckTests(unittest.TestCase):
         self.assertTrue(html.index("Warnung") < html.index("</body>"))
 
 
+class VersionenPassenZusammen(unittest.TestCase):
+    def test_server_und_seite_haben_dieselbe_version(self):
+        """Vergisst man beim Erhoehen der Version eine der beiden Stellen, meldet die Seite 'passt nicht zum Server'."""
+        import re
+        wurzel = os.path.join(os.path.dirname(__file__), "..")
+        with open(os.path.join(wurzel, "server.py"), encoding="utf-8") as d:
+            server = re.search(r'^VERSION\s*=\s*"(v\d+)', d.read(), re.M).group(1)
+        with open(os.path.join(wurzel, "index.html"), encoding="utf-8") as d:
+            seite = seitencheck.seiten_version(d.read())
+        self.assertEqual(seite, server, "VERSION in server.py und SEITE in index.html muessen gleich sein")
+
+
 if __name__ == "__main__":
     unittest.main()
