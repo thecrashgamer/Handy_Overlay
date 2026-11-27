@@ -307,7 +307,8 @@ async def einstellungen(ein: EinstellungEin, request: Request):
 
 def pruefe_herkunft(request: Request):
     """Aenderungen ueber /api nur mit eigenem Kopfzeilen-Eintrag (eine fremde Webseite kann den nicht setzen)."""
-    if request.method == "POST" and request.url.path.startswith("/api/") and request.headers.get("x-phonebox") != "1":
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api/") \
+            and request.headers.get("x-phonebox") != "1":
         return fehler_antwort("Ungueltige Anfrage.", 403)
     return None
 

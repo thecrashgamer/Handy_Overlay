@@ -62,5 +62,58 @@ class ShortcutTests(unittest.TestCase):
                 shortcuts.tasten_parsen(e["tasten"])
 
 
+class PruefenTests(unittest.TestCase):
+    def test_gueltige_eintraege(self):
+        self.assertEqual(shortcuts.pruefen({"name": " Rechner ", "icon": "🧮", "programm": "calc.exe"}),
+                         {"name": "Rechner", "icon": "🧮", "programm": "calc.exe"})
+        self.assertEqual(shortcuts.pruefen({"name": "TM", "tasten": "Ctrl + Shift + Esc"})["tasten"], "ctrl+shift+esc")
+        self.assertEqual(shortcuts.pruefen({"name": "Aus", "aktion": "herunterfahren", "frage": " Wirklich? "})["frage"], "Wirklich?")
+        e = shortcuts.pruefen({"name": "N", "programm": "notepad.exe", "argumente": ["a b.txt"], "bestaetigen": True})
+        self.assertEqual((e["argumente"], e["bestaetigen"]), (["a b.txt"], True))
+
+    def test_ungueltige_eintraege(self):
+        schlecht = [
+            "text", {}, {"name": ""}, {"name": "x" * 31, "programm": "a"},
+            {"name": "A"},                                                    # nichts gewaehlt
+            {"name": "A", "programm": "a", "tasten": "win+d"},                # zwei Arten
+            {"name": "A", "programm": "a\nb"},                                # Steuerzeichen
+            {"name": "A", "programm": "a", "argumente": "nein"},
+            {"name": "A", "programm": "a", "argumente": ["x"] * 11},
+            {"name": "A", "tasten": "ctrl+quatsch"},
+            {"name": "A", "aktion": "alles-loeschen"},
+            {"name": "A", "icon": "x" * 9, "programm": "a"},
+            {"name": "A", "programm": "a", "frage": "x" * 101},
+        ]
+        for e in schlecht:
+            with self.assertRaises(ValueError, msg=str(e)):
+                shortcuts.pruefen(e)
+
+    def test_liste(self):
+        ok = [{"name": "A", "programm": "a"}, {"name": "B", "tasten": "win+d"}]
+        self.assertEqual(len(shortcuts.pruefen_liste(ok)), 2)
+        with self.assertRaises(ValueError) as f:
+            shortcuts.pruefen_liste(ok + [{"name": "a", "programm": "x"}])  # gleicher Name, egal ob gross/klein
+        self.assertIn("doppelt", str(f.exception))
+        with self.assertRaises(ValueError) as f:
+            shortcuts.pruefen_liste([{"name": "A", "programm": "a"}, {"name": "B"}])
+        self.assertIn("Nr. 2", str(f.exception))
+        with self.assertRaises(ValueError):
+            shortcuts.pruefen_liste([{"name": f"S{i}", "programm": "a"} for i in range(shortcuts.MAX_SHORTCUTS + 1)])
+        with self.assertRaises(ValueError):
+            shortcuts.pruefen_liste("quatsch")
+
+    def test_speichern_sicher_mit_sicherung(self):
+        with tempfile.TemporaryDirectory() as ordner:
+            pfad = os.path.join(ordner, "unter", "shortcuts.json")
+            shortcuts.speichern(pfad, [{"name": "A", "programm": "a"}])
+            shortcuts.speichern(pfad, [{"name": "B", "programm": "b"}])
+            self.assertEqual(shortcuts.laden(pfad)[0]["name"], "B")
+            self.assertEqual(shortcuts.laden(pfad + ".bak")[0]["name"], "A")  # alte Fassung bleibt
+            self.assertFalse(os.path.exists(pfad + ".neu"))                   # keine Hilfsdatei uebrig
+            shortcuts.speichern(pfad, [{"name": "Umlaut \u00e4", "icon": "🔒", "aktion": "sperren"}])
+            with open(pfad, encoding="utf-8") as d:
+                self.assertIn("Umlaut \u00e4", d.read())  # lesbar, nicht als \\u-Folge
+
+
 if __name__ == "__main__":
     unittest.main()

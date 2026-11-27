@@ -24,13 +24,18 @@ Passwörter werden mit scrypt gespeichert, Sitzungen und Codes nur als Hash. Nac
 
 Hinweis: Die Verbindung ist im Heimnetz unverschlüsselt (http). Von außerhalb nur über ein VPN wie Tailscale gehen, nie die Phonebox direkt ins Internet stellen.
 
-## Shortcut-Tasten
+## Shortcut-Tasten und Admin-Bereich
 
-Die Kacheln stehen in `shortcuts.json` am PC und werden bei Änderungen automatisch neu geladen. Jeder Eintrag hat `name`, optional `icon` und entweder `programm` (Programm, Datei oder Webadresse starten) oder `tasten` (Tastenkürzel, z. B. `win+shift+s`, `ctrl+shift+esc`, `f5`, `stumm`, `playpause`). Außerdem gibt es feste Aktionen mit `aktion`: `sperren` (Win+L lässt sich von Windows aus nicht simulieren, darum die echte Sperr-Funktion), `herunterfahren` und `herunterfahren_stoppen`. Das Herunterfahren verlangt immer eine Rückfrage auf dem iPhone, die der Server selbst prüft (10 Sekunden Zeit, nur genau für diese Kachel) und startet dann mit 15 Sekunden Verzögerung. In dieser Zeit bricht die Kachel „Herunterfahren stoppen“ es ab. Jeder andere Eintrag kann mit `"bestaetigen": true` ebenfalls eine Rückfrage bekommen.
+Administratoren legen die Kacheln auf einer eigenen Seite an: `http://localhost:8000/admin` (auch über Konto → „Shortcuts anlegen und bearbeiten“). Dort gibt es eine Vorschau wie am Handy, Vorlagen, eine Symbol-Auswahl, eine Aufnahme für Tastenkürzel und Pfeile für die Reihenfolge. Gespeichert wird nur mit deinem Passwort. Am Handy erscheint die neue Liste sofort, ohne Neuladen.
 
-Erscheint die Rückfrage nicht, unter `http://<PC-IP>:8000/log` nachsehen: „Rueckfrage gesendet“ heißt, der Server hat sie geschickt, „Rueckfrage angezeigt“, dass eine Seite sie zeigt. „WARNUNG: Seite … verbunden“ bedeutet, dass eine alte `index.html` läuft (alte Datei im Ordner oder alte Seite im Browser). Dann alle Dateien aus der neuen Version kopieren und die Seite neu laden. JavaScript-Fehler zeigt die Seite selbst als rote Leiste oben.
+Eine Kachel kann:
+- ein **Programm, eine Datei oder eine Webadresse** öffnen (optional mit Argumenten),
+- ein **Tastenkürzel** senden (z. B. `win+shift+s`, `ctrl+shift+esc`, `f5`, `stumm`, `playpause`),
+- eine feste **Aktion** auslösen: `sperren` (Win+L lässt sich von Windows aus nicht simulieren, darum die echte Sperr-Funktion), `herunterfahren` oder `herunterfahren_stoppen`.
 
-Das iPhone schickt nur die Nummer der Kachel, nie einen freien Befehl.
+Das Herunterfahren verlangt immer eine Rückfrage, die der Server selbst prüft (10 Sekunden Zeit, nur genau für diese Kachel). Danach läuft der PC mit 15 Sekunden Verzögerung herunter, und die Kachel „Herunterfahren stoppen“ bricht es ab. Jede andere Kachel kann mit „Vor dem Ausführen nachfragen“ ebenfalls eine Rückfrage bekommen.
+
+Deine Liste liegt in `daten/shortcuts.json` und bleibt bei Updates erhalten. Die mitgelieferte `shortcuts.json` ist nur die Vorlage, solange du noch nichts gespeichert hast. Vor jedem Speichern wird die alte Fassung als `shortcuts.json.bak` gesichert. Freie Befehle (Skripte, Shell) gibt es bewusst nicht. Das Handy schickt nur die Nummer der Kachel.
 
 ## Claude-Status
 
@@ -52,6 +57,7 @@ pip install fastapi "uvicorn[standard]"
 PHONEBOX_TEST=1 python server.py      # Fake-Songs statt Spotify
 node tests/ui.test.js                 # UI-Test mit Playwright
 node tests/auth.test.js               # Konten-Test
+node tests/admin.test.js              # Admin-Bereich-Test
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
@@ -61,7 +67,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 |---|---|
 | `server.py` | Webserver, WebSocket, Claude-Endpunkt |
 | `medien.py` | Spotify, Cover und Lautstärke (Windows) bzw. Fake-Daten (Test) |
-| `shortcuts.py`, `shortcuts.json` | Shortcut-Tasten und ihre Liste |
+| `shortcuts.py`, `shortcuts.json` | Shortcut-Logik, Prüfung und Vorlage |
+| `admin.py`, `admin.html` | Admin-Bereich für die Shortcuts |
 | `index.html` | Oberfläche fürs iPhone |
 | `anmelden.html`, `konto.html` | Anmeldung, Konto und Benutzerverwaltung |
 | `auth.py`, `konten.py` | Routen und Logik der Konten |

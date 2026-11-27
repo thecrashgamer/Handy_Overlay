@@ -14,6 +14,7 @@ from starlette.websockets import WebSocketDisconnected
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
+import admin
 import auth
 import medien as medien_modul
 import protokoll
@@ -24,7 +25,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v14 (Konten)"
+VERSION = "v15 (Admin)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
@@ -36,7 +37,9 @@ medien = medien_modul.erstellen(TEST)
 clients = set()
 ws_token = {}  # WebSocket -> Sitzungs-Schluessel, damit gesperrte oder abgemeldete Geraete getrennt werden
 seiten = {}  # WebSocket -> Version der Seite (aus ?seite=...), "" bei alten Seiten
-SHORTCUT_DATEI = ORDNER / "shortcuts.json"
+SHORTCUT_VORLAGE = ORDNER / "shortcuts.json"  # mitgelieferte Standardliste (im Git)
+SHORTCUT_DATEI = DATEN / "shortcuts.json"  # eigene Liste aus dem Admin-Bereich (bleibt bei Updates erhalten)
+admin.einrichten(SHORTCUT_DATEI, SHORTCUT_VORLAGE, ORDNER)
 zustand = {
     "medien": {},
     "claude": {"status": "", "text": "", "aktion": "", "projekt": "", "seit": 0, "dauer": 0, "verlauf": []},
@@ -47,7 +50,7 @@ claude_zuletzt = 0  # wann zuletzt etwas von Claude kam (ms)
 CLAUDE_ABLAUF_MS = 10 * 60 * 1000  # nach 10 Minuten Stille gilt Claude als ruhig
 zustand["rueckfrage"] = None  # wartet auf Bestaetigung: {"nr", "name", "icon", "frage", "bis"}
 shortcut_liste = []
-shortcut_stand = None  # Aenderungszeit von shortcuts.json
+shortcut_stand = None  # (Pfad, Aenderungszeit) der geladenen Liste
 
 
 def jetzt_ms():
@@ -74,15 +77,21 @@ def rueckfrage_aufraeumen():
 def shortcuts_neu_laden():
     """Liest shortcuts.json neu, sobald sich die Datei geaendert hat."""
     global shortcut_liste, shortcut_stand
+    pfad = shortcut_pfad()
     try:
-        stand = SHORTCUT_DATEI.stat().st_mtime
+        stand = (str(pfad), pfad.stat().st_mtime)
     except OSError:
         stand = None
     if stand != shortcut_stand:
         shortcut_stand = stand
-        shortcut_liste = shortcuts.laden(SHORTCUT_DATEI)
+        shortcut_liste = shortcuts.laden(pfad)
         return True
     return False
+
+
+def shortcut_pfad():
+    """Die eigene Liste, sonst die mitgelieferte Vorlage."""
+    return SHORTCUT_DATEI if SHORTCUT_DATEI.exists() else SHORTCUT_VORLAGE
 
 
 def nachricht_bauen():
@@ -221,6 +230,7 @@ async def lebenszyklus(app):
 
 app = FastAPI(lifespan=lebenszyklus)
 app.include_router(auth.router)
+app.include_router(admin.router)
 
 
 @app.middleware("http")

@@ -332,6 +332,11 @@ class Konten:
             self._sitzungen_loeschen(benutzer_id, ausser=behalte_token)  # andere Geraete muessen sich neu anmelden
             self.db.commit()
 
+    def passwort_stimmt(self, benutzer_id, passwort):
+        with self.lock:
+            z = self.db.execute("SELECT pw_hash FROM benutzer WHERE id=?", (benutzer_id,)).fetchone()
+        return z is not None and pw_pruefen(str(passwort), z["pw_hash"])
+
     def codes_neu(self, benutzer_id, passwort):
         with self.lock:
             z = self.db.execute("SELECT * FROM benutzer WHERE id=?", (benutzer_id,)).fetchone()
