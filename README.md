@@ -10,6 +10,16 @@ Am iPhone in Safari `https://<PC-IP>:8443` öffnen (die Adresse zeigt `start.bat
 
 Von Hand geht es auch: `pip install -r requirements.txt`, dann `python server.py`.
 
+## Aktualisieren
+
+`update.bat` doppelklicken. Das Skript lädt die neueste Version von GitHub, tauscht nur Programmdateien aus und startet den Server neu. Konten, Shortcuts und Zertifikate (Ordner `daten`) bleiben unberührt. Was ersetzt wird, liegt vorher als Sicherung in `daten/update-sicherung/` (die letzten 3 bleiben).
+
+- `python update.py --trocken` zeigt nur, was sich ändern würde.
+- `python update.py --zurueck` stellt die Dateien der letzten Sicherung wieder her.
+- `python update.py --quelle <Adresse oder ZIP-Datei>` nimmt eine andere Quelle.
+
+Aus Sicherheitsgründen akzeptiert das Skript keine ZIP-Dateien mit unsicheren Pfaden (`../`), Verknüpfungen oder ohne `server.py`, und es beendet nur Prozesse, die `server.py` auf den Phonebox-Ports ausführen.
+
 ## Konten und Anmeldung
 
 Die ganze Phonebox ist durch Benutzerkonten geschützt. Ohne Anmeldung kommt man weder auf die Seite noch an die Steuerung, das Cover oder das Protokoll.
@@ -73,6 +83,7 @@ node tests/ui.test.js                 # UI-Test mit Playwright
 node tests/auth.test.js               # Konten-Test
 node tests/admin.test.js              # Admin-Bereich-Test
 node tests/https.test.js              # HTTPS-Test
+# test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
@@ -90,5 +101,6 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `auth.py`, `konten.py` | Routen und Logik der Konten |
 | `benutzer.py` | Konten am PC verwalten |
 | `start.bat` | Einrichtung und Autostart |
+| `update.bat`, `update.py` | Aktualisieren auf die neueste Version |
 | `hooks/` | Claude-Code-Hooks |
 | `tests/` | UI-Test und Shortcut-Tests |
