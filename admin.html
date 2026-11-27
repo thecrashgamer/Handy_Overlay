@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phonebox – Admin</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #121212; color: #fff; font-family: -apple-system, "Segoe UI", sans-serif;
+         padding: 16px 16px 120px; }
+  .seite { max-width: 760px; margin: 0 auto; }
+  .kopf { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 16px; margin: 18px 0 8px; }
+  a { color: #1db954; text-decoration: none; font-size: 15px; }
+  .links a + a { margin-left: 14px; }
+  .hinweis { color: #8a8a8a; font-size: 13px; line-height: 1.45; }
+  .karte { background: #1c1c1c; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .karte.neu { outline: 2px solid #1db954; }
+  label { display: block; font-size: 12px; color: #b3b3b3; margin: 10px 0 4px; }
+  input[type=text], input[type=password], select { width: 100%; padding: 10px; font-size: 15px; border-radius: 8px;
+         border: 1px solid #333; background: #121212; color: #fff; }
+  input:focus, select:focus { outline: 2px solid #1db954; border-color: transparent; }
+  button { font-size: 14px; font-family: inherit; }
+  .zeile { display: flex; gap: 8px; align-items: flex-end; }
+  .zeile > * { min-width: 0; }
+  .iconknopf { width: 52px; height: 42px; flex: none; border: 1px solid #333; border-radius: 8px; background: #121212; font-size: 22px; color: #fff; }
+  .klein { flex: none; padding: 9px 11px; border: none; border-radius: 8px; background: #2c2c2c; color: #fff; }
+  .klein:disabled { opacity: .35; }
+  .klein.rot { background: #4a1d20; color: #ff8a8f; }
+  .knopf { padding: 12px 18px; border: none; border-radius: 10px; background: #1db954; color: #000; font-weight: bold; font-size: 15px; }
+  .knopf.zweit { background: #333; color: #fff; font-weight: normal; }
+  .knopf:disabled { background: #2a2a2a; color: #777; }
+  .haken { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
+  .haken input { width: 18px; height: 18px; accent-color: #1db954; }
+  .vorschau { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 10px; background: #0c0c0c;
+              padding: 12px; border-radius: 14px; }
+  .kachel { background: #282828; border-radius: 14px; height: 76px; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 4px; font-size: 12px; text-align: center; padding: 4px; overflow: hidden; }
+  .kachel .sym { font-size: 24px; line-height: 1; }
+  .leiste { position: fixed; left: 0; right: 0; bottom: 0; background: #1c1c1c; border-top: 1px solid #333; padding: 12px 16px; z-index: 5; }
+  .leiste .innen { max-width: 760px; margin: 0 auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .leiste input { flex: 1; min-width: 150px; }
+  .meldung { font-size: 14px; padding: 8px 10px; border-radius: 8px; flex-basis: 100%; display: none; }
+  .meldung.fehler { display: block; background: #3b1517; color: #ff8a8f; }
+  .meldung.ok { display: block; background: #12301d; color: #7ee2a0; }
+  .stand { color: #f5a623; font-size: 13px; }
+  #emoji { position: absolute; z-index: 10; background: #262626; border: 1px solid #3a3a3a; border-radius: 12px; padding: 8px;
+           display: none; grid-template-columns: repeat(8, 38px); gap: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+  #emoji button { width: 38px; height: 38px; border: none; background: none; font-size: 22px; border-radius: 8px; }
+  #emoji button:hover { background: #3a3a3a; }
+  #emoji .eigen { grid-column: 1 / -1; display: flex; gap: 6px; }
+  .aufnahme { background: #5a1d20 !important; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="seite">
+  <div class="kopf">
+    <h1>Shortcuts</h1>
+    <div class="links"><a href="/">&larr; Phonebox</a><a href="/konto">Konto</a></div>
+  </div>
+  <div class="hinweis" id="quelle">Lade ...</div>
+
+  <h2>Vorschau (so sieht es am Handy aus)</h2>
+  <div class="vorschau" id="vorschau"></div>
+
+  <h2>Bearbeiten</h2>
+  <div id="liste"></div>
+
+  <div class="zeile" style="margin-top:6px">
+    <button class="knopf zweit" onclick="neu()">+ Neuer Shortcut</button>
+    <select id="vorlage" onchange="vorlageNehmen()" style="max-width:260px">
+      <option value="">+ Aus Vorlage hinzufügen ...</option>
+    </select>
+  </div>
+  <p class="hinweis">Am PC ausgeführt wird nur, was hier steht. Das Handy schickt nur die Nummer der Kachel. Die Reihenfolge hier ist die Reihenfolge am Handy.</p>
+</div>
+
+<div id="emoji"></div>
+
+<div class="leiste">
+  <div class="innen">
+    <span class="stand" id="stand"></span>
+    <input type="password" id="pw" placeholder="Zum Speichern: dein Passwort" autocomplete="current-password">
+    <button class="knopf" id="speichern" onclick="speichern()" disabled>Speichern</button>
+    <button class="knopf zweit" id="verwerfen" onclick="verwerfen()" disabled>Verwerfen</button>
+    <div class="meldung" id="meldung" role="alert"></div>
+  </div>
+</div>
+
+<script>
+  var liste = [];          // Arbeitskopie im Formular
+  var original = "";       // Stand beim Laden/Speichern, um Aenderungen zu erkennen
+  var AKTIONEN = {};
+  var MAXIMAL = 24;
+  var emojiZiel = null;
+  var aufnahmeFeld = null;
+  var neuerIndex = -1;
+
+  var EMOJIS = ["🧮","📁","📊","🖥️","📸","🔒","⏻","✋","🌐","🎵","🔇","🔊","📝","⚙️","🎮","💡",
+                "📺","🖨️","📧","📅","🔍","🗂️","☕","🏠","▶️","⏸️","⏭️","⏮️","🔄","📂","🧰","⭐"];
+
+  var VORLAGEN = [
+    { name: "Rechner", icon: "🧮", art: "programm", programm: "calc.exe" },
+    { name: "Explorer", icon: "📁", art: "programm", programm: "explorer.exe" },
+    { name: "Notizblock", icon: "📝", art: "programm", programm: "notepad.exe" },
+    { name: "Webseite", icon: "🌐", art: "programm", programm: "https://" },
+    { name: "Task-Manager", icon: "📊", art: "tasten", tasten: "ctrl+shift+esc" },
+    { name: "Desktop", icon: "🖥️", art: "tasten", tasten: "win+d" },
+    { name: "Screenshot", icon: "📸", art: "tasten", tasten: "win+shift+s" },
+    { name: "Ton aus", icon: "🔇", art: "tasten", tasten: "stumm" },
+    { name: "Sperren", icon: "🔒", art: "aktion", aktion: "sperren" },
+    { name: "Herunterfahren", icon: "⏻", art: "aktion", aktion: "herunterfahren", frage: "PC wirklich herunterfahren?" },
+    { name: "Herunterfahren stoppen", icon: "✋", art: "aktion", aktion: "herunterfahren_stoppen" }
+  ];
+
+  function el(id) { return document.getElementById(id); }
+
+  function h(tag, attrs, kinder) {
+    var e = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      if (k === "text") e.textContent = attrs[k];
+      else if (k.indexOf("on") === 0) e[k] = attrs[k];
+      else if (k === "value") e.value = attrs[k];
+      else if (k === "checked") e.checked = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    });
+    (kinder || []).forEach(function (c) { if (c) e.appendChild(c); });
+    return e;
+  }
+
+  function meldung(text, art) {
+    var m = el("meldung");
+    m.textContent = text || "";
+    m.className = "meldung" + (text ? " " + art : "");
+  }
+
+  function anfrage(methode, url, daten) {
+    var o = { method: methode, credentials: "same-origin", headers: { "X-Phonebox": "1" } };
+    if (daten) { o.headers["Content-Type"] = "application/json"; o.body = JSON.stringify(daten); }
+    return fetch(url, o).then(function (r) {
+      if (r.status === 401) { location.href = "/anmelden"; throw new Error("Nicht angemeldet."); }
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.fehler || "Fehler " + r.status);
+        return j;
+      });
+    });
+  }
+
+  // ---- Umwandeln zwischen Server-Form und Formular-Form
+  function ausServer(e) {
+    return {
+      name: e.name || "", icon: e.icon || "",
+      art: e.programm !== undefined ? "programm" : e.tasten !== undefined ? "tasten" : "aktion",
+      programm: e.programm || "", argumente: (e.argumente || []).map(function (a) { return /\s/.test(a) ? '"' + a + '"' : a; }).join(" "),
+      tasten: e.tasten || "", aktion: e.aktion || "sperren",
+      bestaetigen: !!e.bestaetigen, frage: e.frage || ""
+    };
+  }
+
+  function argumenteLesen(text) {
+    var ergebnis = [], re = /"([^"]*)"|(\S+)/g, t;
+    while ((t = re.exec(text || "")) !== null) ergebnis.push(t[1] !== undefined ? t[1] : t[2]);
+    return ergebnis;
+  }
+
+  function zuServer(f) {
+    var e = { name: f.name.trim() };
+    if (f.icon.trim()) e.icon = f.icon.trim();
+    if (f.art === "programm") {
+      e.programm = f.programm.trim();
+      var a = argumenteLesen(f.argumente);
+      if (a.length) e.argumente = a;
+    } else if (f.art === "tasten") e.tasten = f.tasten.trim();
+    else e.aktion = f.aktion;
+    if (f.bestaetigen) e.bestaetigen = true;
+    if (f.frage.trim()) e.frage = f.frage.trim();
+    return e;
+  }
+
+  function stand() { return JSON.stringify(liste.map(zuServer)); }
+
+  function geaendert() {
+    var dirty = stand() !== original;
+    el("speichern").disabled = !dirty;
+    el("verwerfen").disabled = !dirty;
+    el("stand").textContent = dirty ? "Ungespeicherte Änderungen" : "";
+    vorschau();
+  }
+
+  // ---- Anzeige
+  function vorschau() {
+    var v = el("vorschau");
+    v.textContent = "";
+    if (!liste.length) v.appendChild(h("div", { class: "hinweis", text: "Noch keine Shortcuts." }));
+    liste.forEach(function (f) {
+      v.appendChild(h("div", { class: "kachel" }, [
+        h("span", { class: "sym", text: f.icon || (f.art === "aktion" ? "⚙️" : "▶") }),
+        h("span", { text: f.name || "(ohne Namen)" })
+      ]));
+    });
+  }
+
+  function feld(beschriftung, eingabe) {
+    return h("div", {}, [h("label", { text: beschriftung }), eingabe]);
+  }
+
+  function karte(f, i) {
+    var k = h("div", { class: "karte" + (i === neuerIndex ? " neu" : "") });
+
+    var iconKnopf = h("button", { class: "iconknopf", type: "button", title: "Symbol wählen", text: f.icon || "＋" });
+    iconKnopf.onclick = function (ev) { ev.stopPropagation(); emojiOeffnen(iconKnopf, f, i); };
+    var name = h("input", { type: "text", value: f.name, maxlength: "30", placeholder: "Name" });
+    name.oninput = function () { f.name = name.value; geaendert(); };
+    var hoch = h("button", { class: "klein", type: "button", title: "Nach oben", text: "↑" });
+    var runter = h("button", { class: "klein", type: "button", title: "Nach unten", text: "↓" });
+    var weg = h("button", { class: "klein rot", type: "button", title: "Löschen", text: "Löschen" });
+    hoch.disabled = i === 0;
+    runter.disabled = i === liste.length - 1;
+    hoch.onclick = function () { tauschen(i, i - 1); };
+    runter.onclick = function () { tauschen(i, i + 1); };
+    weg.onclick = function () {
+      if (confirm("Shortcut \u201E" + (f.name || "ohne Namen") + "\u201C löschen?")) { liste.splice(i, 1); neuerIndex = -1; zeichnen(); }
+    };
+    k.appendChild(h("div", { class: "zeile" }, [iconKnopf, h("div", { style: "flex:1" }, [h("label", { text: "Name" }), name]), hoch, runter, weg]));
+
+    var art = h("select", {});
+    [["programm", "Programm, Datei oder Webadresse starten"], ["tasten", "Tastenkürzel senden"], ["aktion", "Aktion (Sperren, Herunterfahren)"]].forEach(function (o) {
+      var op = h("option", { value: o[0], text: o[1] });
+      if (f.art === o[0]) op.selected = true;
+      art.appendChild(op);
+    });
+    art.onchange = function () { f.art = art.value; zeichnen(); };
+    k.appendChild(feld("Was soll passieren?", art));
+
+    if (f.art === "programm") {
+      var prog = h("input", { type: "text", value: f.programm, placeholder: "z. B. calc.exe oder https://example.com", maxlength: "300", autocapitalize: "none", spellcheck: "false" });
+      prog.oninput = function () { f.programm = prog.value; geaendert(); };
+      var arg = h("input", { type: "text", value: f.argumente, placeholder: 'z. B. "C:\\Ordner\\Datei.txt"', autocapitalize: "none", spellcheck: "false" });
+      arg.oninput = function () { f.argumente = arg.value; geaendert(); };
+      k.appendChild(feld("Programm, Datei oder Webadresse", prog));
+      k.appendChild(feld("Argumente (optional, mit Leerzeichen getrennt, Leerzeichen in Anführungszeichen)", arg));
+    } else if (f.art === "tasten") {
+      var tasten = h("input", { type: "text", value: f.tasten, placeholder: "z. B. ctrl+shift+esc", autocapitalize: "none", spellcheck: "false" });
+      tasten.oninput = function () { f.tasten = tasten.value; geaendert(); };
+      var aufnehmen = h("button", { class: "klein", type: "button", text: "Aufnehmen" });
+      aufnehmen.onclick = function () { aufnehmenUmschalten(aufnehmen, tasten, f); };
+      k.appendChild(h("div", {}, [h("label", { text: "Tastenkürzel" }), h("div", { class: "zeile" }, [tasten, aufnehmen])]));
+      k.appendChild(h("div", { class: "hinweis", text: "Mit „Aufnehmen“ drückst du das Kürzel selbst. Die Windows-Taste kann der Browser nicht aufnehmen, schreib sie als „win“, z. B. win+d. Weitere Namen: esc, enter, tab, space, delete, home, end, pageup, pagedown, left, up, right, down, f1 bis f12, stumm, leiser, lauter, playpause, naechster, vorheriger." }));
+    } else {
+      var aktion = h("select", {});
+      Object.keys(AKTIONEN).forEach(function (a) {
+        var op = h("option", { value: a, text: AKTIONEN[a] });
+        if (f.aktion === a) op.selected = true;
+        aktion.appendChild(op);
+      });
+      aktion.onchange = function () { f.aktion = aktion.value; zeichnen(); };
+      k.appendChild(feld("Aktion", aktion));
+    }
+
+    var immer = f.art === "aktion" && f.aktion === "herunterfahren";
+    var haken = h("input", { type: "checkbox", id: "b" + i });
+    haken.checked = immer || f.bestaetigen;
+    haken.disabled = immer;
+    haken.onchange = function () { f.bestaetigen = haken.checked; zeichnen(); };
+    k.appendChild(h("div", { class: "haken" }, [haken, h("label", { for: "b" + i, style: "margin:0;color:#fff;font-size:14px", text: immer ? "Fragt immer nach (nicht abschaltbar)" : "Vor dem Ausführen nachfragen" })]));
+    if (haken.checked) {
+      var frage = h("input", { type: "text", value: f.frage, maxlength: "100", placeholder: "Frage, z. B. PC wirklich herunterfahren?" });
+      frage.oninput = function () { f.frage = frage.value; geaendert(); };
+      k.appendChild(feld("Text der Rückfrage (optional)", frage));
+    }
+    return k;
+  }
+
+  function zeichnen() {
+    var l = el("liste");
+    l.textContent = "";
+    liste.forEach(function (f, i) { l.appendChild(karte(f, i)); });
+    geaendert();
+  }
+
+  function tauschen(a, b) {
+    if (b < 0 || b >= liste.length) return;
+    var t = liste[a]; liste[a] = liste[b]; liste[b] = t;
+    neuerIndex = -1;
+    zeichnen();
+  }
+
+  function neu(vorlage) {
+    if (liste.length >= MAXIMAL) { meldung("Mehr als " + MAXIMAL + " Shortcuts gehen nicht.", "fehler"); return; }
+    var f = Object.assign({ name: "", icon: "", art: "programm", programm: "", argumente: "", tasten: "", aktion: "sperren", bestaetigen: false, frage: "" }, vorlage || {});
+    var basis = f.name, n = 2;
+    while (basis && liste.some(function (x) { return x.name.toLowerCase() === f.name.toLowerCase(); })) f.name = basis + " " + n++;
+    liste.push(f);
+    neuerIndex = liste.length - 1;
+    meldung("");
+    zeichnen();
+    var karten = el("liste").children;
+    karten[karten.length - 1].scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  function vorlageNehmen() {
+    var s = el("vorlage");
+    if (s.value !== "") neu(VORLAGEN[Number(s.value)]);
+    s.value = "";
+  }
+
+  // ---- Emoji-Auswahl
+  function emojiOeffnen(knopf, f, i) {
+    emojiZiel = { f: f, knopf: knopf };
+    var box = el("emoji");
+    box.textContent = "";
+    EMOJIS.forEach(function (e) {
+      var b = h("button", { type: "button", text: e });
+      b.onclick = function () { emojiSetzen(e); };
+      box.appendChild(b);
+    });
+    var eigen = h("input", { type: "text", placeholder: "Eigenes Symbol einfügen (Win + .)", maxlength: "8" });
+    eigen.onchange = function () { emojiSetzen(eigen.value.trim()); };
+    box.appendChild(h("div", { class: "eigen" }, [eigen, h("button", { class: "klein", type: "button", text: "Kein Symbol", onclick: function () { emojiSetzen(""); } })]));
+    var r = knopf.getBoundingClientRect();
+    box.style.display = "grid";
+    box.style.top = (window.scrollY + r.bottom + 6) + "px";
+    box.style.left = Math.max(8, Math.min(window.scrollX + r.left, window.innerWidth - 360)) + "px";
+  }
+
+  function emojiSetzen(e) {
+    if (emojiZiel) { emojiZiel.f.icon = e; emojiZiel.knopf.textContent = e || "＋"; }
+    el("emoji").style.display = "none";
+    emojiZiel = null;
+    geaendert();
+  }
+
+  document.addEventListener("click", function (ev) {
+    if (!el("emoji").contains(ev.target)) el("emoji").style.display = "none";
+  });
+
+  // ---- Tastenkuerzel aufnehmen
+  var TASTENNAMEN = { escape: "esc", " ": "space", arrowleft: "left", arrowright: "right", arrowup: "up", arrowdown: "down",
+    enter: "enter", tab: "tab", backspace: "backspace", delete: "delete", home: "home", end: "end", pageup: "pageup", pagedown: "pagedown" };
+
+  function aufnehmenUmschalten(knopf, eingabe, f) {
+    if (aufnahmeFeld) { aufnahmeEnde(); return; }
+    aufnahmeFeld = { knopf: knopf, eingabe: eingabe, f: f };
+    knopf.textContent = "Drücke jetzt ...";
+    knopf.className = "klein aufnahme";
+    document.addEventListener("keydown", aufnahmeTaste, true);
+  }
+
+  function aufnahmeEnde() {
+    document.removeEventListener("keydown", aufnahmeTaste, true);
+    if (aufnahmeFeld) { aufnahmeFeld.knopf.textContent = "Aufnehmen"; aufnahmeFeld.knopf.className = "klein"; }
+    aufnahmeFeld = null;
+  }
+
+  function aufnahmeTaste(ev) {
+    if (!aufnahmeFeld) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var k = (ev.key || "").toLowerCase();
+    if (["control", "shift", "alt", "meta", "altgraph"].indexOf(k) >= 0) return;  // erst die Haupttaste ergibt ein Kuerzel
+    var teile = [];
+    if (ev.ctrlKey) teile.push("ctrl");
+    if (ev.altKey) teile.push("alt");
+    if (ev.shiftKey) teile.push("shift");
+    if (ev.metaKey) teile.push("win");
+    var name = TASTENNAMEN[k] || (/^f([1-9]|1[0-2])$/.test(k) ? k : (k.length === 1 && /[a-z0-9]/.test(k) ? k : ""));
+    if (!name) { meldung("Diese Taste kenne ich nicht: " + (ev.key || "?"), "fehler"); aufnahmeEnde(); return; }
+    teile.push(name);
+    aufnahmeFeld.f.tasten = teile.join("+");
+    aufnahmeFeld.eingabe.value = aufnahmeFeld.f.tasten;
+    meldung("");
+    aufnahmeEnde();
+    geaendert();
+  }
+
+  // ---- Speichern
+  function speichern() {
+    meldung("");
+    if (!el("pw").value) { meldung("Gib zum Speichern dein Passwort ein.", "fehler"); el("pw").focus(); return; }
+    el("speichern").disabled = true;
+    anfrage("POST", "/api/shortcuts/speichern", { shortcuts: liste.map(zuServer), passwort: el("pw").value })
+      .then(function (a) {
+        el("pw").value = "";
+        liste = a.shortcuts.map(ausServer);
+        original = stand();
+        neuerIndex = -1;
+        zeichnen();
+        meldung("Gespeichert. Am Handy erscheint die neue Liste sofort.", "ok");
+      })
+      .catch(function (f) { meldung(f.message, "fehler"); geaendert(); });
+  }
+
+  function verwerfen() {
+    if (!confirm("Alle ungespeicherten Änderungen verwerfen?")) return;
+    laden();
+  }
+
+  function laden() {
+    anfrage("GET", "/api/shortcuts").then(function (a) {
+      AKTIONEN = a.aktionen;
+      MAXIMAL = a.maximal;
+      liste = a.shortcuts.map(ausServer);
+      original = stand();
+      neuerIndex = -1;
+      el("quelle").textContent = a.eigene
+        ? "Das ist deine eigene Liste. Sie bleibt bei Updates erhalten."
+        : "Das ist noch die mitgelieferte Standardliste. Sobald du speicherst, entsteht deine eigene Liste.";
+      meldung("");
+      zeichnen();
+    }).catch(function (f) { meldung(f.message, "fehler"); });
+  }
+
+  VORLAGEN.forEach(function (v, i) { el("vorlage").appendChild(h("option", { value: String(i), text: (v.icon + " " + v.name) })); });
+  window.addEventListener("beforeunload", function (ev) {
+    if (stand() !== original) { ev.preventDefault(); ev.returnValue = ""; }
+  });
+  el("pw").addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !el("speichern").disabled) speichern(); });
+  laden();
+</script>
+</body>
+</html>

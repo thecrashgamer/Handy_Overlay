@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Phonebox – Anmelden</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: #121212; color: #fff;
+         font-family: -apple-system, "Segoe UI", sans-serif; display: flex;
+         align-items: center; justify-content: center; padding: 16px; }
+  .karte { width: 100%; max-width: 400px; background: #1c1c1c; border-radius: 16px; padding: 22px 20px; }
+  h1 { font-size: 22px; margin: 0 0 4px; text-align: center; }
+  .unter { color: #b3b3b3; font-size: 14px; text-align: center; margin: 0 0 16px; }
+  .reiter { display: flex; gap: 6px; margin-bottom: 16px; }
+  .reiter button { flex: 1; padding: 9px 4px; border: none; border-radius: 8px; background: #282828;
+                   color: #b3b3b3; font-size: 13px; }
+  .reiter button.aktiv { background: #1db954; color: #000; font-weight: bold; }
+  label { display: block; font-size: 13px; color: #b3b3b3; margin: 12px 0 4px; }
+  input[type=text], input[type=password] { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px;
+         border: 1px solid #333; background: #121212; color: #fff; }
+  input:focus { outline: 2px solid #1db954; border-color: transparent; }
+  .zeile { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
+  .zeile input { width: 20px; height: 20px; accent-color: #1db954; }
+  .zeige { background: none; border: none; color: #1db954; font-size: 13px; padding: 4px 0; }
+  .knopf { width: 100%; margin-top: 18px; padding: 14px; border: none; border-radius: 10px;
+           background: #1db954; color: #000; font-size: 16px; font-weight: bold; }
+  .knopf:disabled { background: #2a2a2a; color: #777; }
+  .knopf.zweit { background: #333; color: #fff; margin-top: 10px; }
+  .meldung { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 14px; display: none; }
+  .meldung.fehler { display: block; background: #3b1517; color: #ff8a8f; }
+  .meldung.ok { display: block; background: #12301d; color: #7ee2a0; }
+  .hinweis { color: #8a8a8a; font-size: 12px; margin-top: 6px; line-height: 1.4; }
+  .codes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0;
+           font-family: Consolas, Menlo, monospace; font-size: 14px; white-space: nowrap; }
+  .codes div { background: #121212; border-radius: 6px; padding: 9px 4px; text-align: center; user-select: all; }
+  .warn { background: #3a2f10; color: #ffd37a; padding: 10px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="karte">
+  <h1>Phonebox</h1>
+  <p class="unter" id="unter">Bitte melde dich an</p>
+
+  <div id="hauptteil">
+    <div class="reiter">
+      <button id="r-anmelden" class="aktiv" onclick="reiter('anmelden')">Anmelden</button>
+      <button id="r-konto" onclick="reiter('konto')">Konto erstellen</button>
+      <button id="r-vergessen" onclick="reiter('vergessen')">Passwort vergessen</button>
+    </div>
+
+    <form id="f-anmelden" onsubmit="return anmelden(event)">
+      <label for="a-name">Benutzername</label>
+      <input type="text" id="a-name" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+      <label for="a-pw">Passwort</label>
+      <input type="password" id="a-pw" name="password" autocomplete="current-password" required>
+      <button type="button" class="zeige" onclick="zeigen('a-pw', this)">Passwort anzeigen</button>
+      <div class="zeile"><input type="checkbox" id="a-merken" checked><label for="a-merken" style="margin:0;color:#fff">Angemeldet bleiben (90 Tage)</label></div>
+      <button class="knopf" id="a-knopf" type="submit">Anmelden</button>
+    </form>
+
+    <form id="f-konto" onsubmit="return registrieren(event)" hidden>
+      <div class="hinweis" id="k-info" style="margin:0 0 4px"></div>
+      <label for="k-name">Benutzername</label>
+      <input type="text" id="k-name" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+      <div class="hinweis">3 bis 30 Zeichen: Buchstaben, Zahlen, Punkt, Unterstrich, Minus.</div>
+      <label for="k-pw">Passwort</label>
+      <input type="password" id="k-pw" name="new-password" autocomplete="new-password" required>
+      <label for="k-pw2">Passwort wiederholen</label>
+      <input type="password" id="k-pw2" autocomplete="new-password" required>
+      <button type="button" class="zeige" onclick="zeigen('k-pw', this); zeigen('k-pw2')">Passwörter anzeigen</button>
+      <div class="hinweis">Mindestens 8 Zeichen. Ein Satz aus mehreren Wörtern ist besser als ein kurzes Passwort.</div>
+      <button class="knopf" id="k-knopf" type="submit">Konto erstellen</button>
+    </form>
+
+    <form id="f-vergessen" onsubmit="return zuruecksetzen(event)" hidden>
+      <div class="hinweis" style="margin:0 0 4px">Gib einen deiner Wiederherstellungscodes ein, die du beim Erstellen des Kontos bekommen hast. Jeder Code gilt nur einmal.</div>
+      <label for="v-name">Benutzername</label>
+      <input type="text" id="v-name" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+      <label for="v-code">Wiederherstellungscode</label>
+      <input type="text" id="v-code" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocorrect="off" spellcheck="false" autocomplete="off" required>
+      <label for="v-pw">Neues Passwort</label>
+      <input type="password" id="v-pw" autocomplete="new-password" required>
+      <label for="v-pw2">Neues Passwort wiederholen</label>
+      <input type="password" id="v-pw2" autocomplete="new-password" required>
+      <button class="knopf" id="v-knopf" type="submit">Passwort zurücksetzen</button>
+      <div class="hinweis">Keine Codes mehr? Dann kann der Administrator am PC dein Passwort neu setzen:<br><code>python benutzer.py passwort &lt;Name&gt;</code></div>
+    </form>
+
+    <div class="meldung" id="meldung" role="alert"></div>
+  </div>
+
+  <div id="codes-teil" hidden>
+    <div class="warn"><b>Wiederherstellungscodes</b><br>Damit setzt du dein Passwort zurück, falls du es vergisst. Schreib sie auf oder speichere sie an einem sicheren Ort. <b>Sie werden nur jetzt angezeigt.</b> Jeder Code gilt einmal.</div>
+    <div class="codes" id="codes"></div>
+    <button class="knopf zweit" id="kopieren" type="button" onclick="kopieren()">Codes kopieren</button>
+    <div class="zeile"><input type="checkbox" id="gesichert" onchange="document.getElementById('weiter').disabled = !this.checked"><label for="gesichert" style="margin:0;color:#fff">Ich habe die Codes gesichert</label></div>
+    <button class="knopf" id="weiter" type="button" disabled onclick="weiter()">Weiter</button>
+    <div class="meldung" id="codes-meldung"></div>
+  </div>
+</div>
+
+<script>
+  var gemerkterStatus = "";
+
+  function el(id) { return document.getElementById(id); }
+
+  function meldung(text, art) {
+    var m = el("meldung");
+    m.textContent = text || "";
+    m.className = "meldung" + (text ? " " + art : "");
+  }
+
+  function reiter(name) {
+    ["anmelden", "konto", "vergessen"].forEach(function (n) {
+      el("f-" + n).hidden = n !== name;
+      el("r-" + n).className = n === name ? "aktiv" : "";
+    });
+    meldung("");
+  }
+
+  function zeigen(id, knopf) {
+    var feld = el(id);
+    var an = feld.type === "password";
+    feld.type = an ? "text" : "password";
+    if (knopf) knopf.textContent = knopf.textContent.indexOf("anzeigen") >= 0
+      ? knopf.textContent.replace("anzeigen", "verbergen") : knopf.textContent.replace("verbergen", "anzeigen");
+  }
+
+  function senden(url, daten) {
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Phonebox": "1" },
+      body: JSON.stringify(daten),
+      credentials: "same-origin"
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.fehler || "Fehler " + r.status);
+        return j;
+      });
+    });
+  }
+
+  function arbeitet(knopf, an, text) {
+    knopf.disabled = an;
+    if (text) knopf.textContent = text;
+  }
+
+  function anmelden(e) {
+    e.preventDefault();
+    var k = el("a-knopf");
+    arbeitet(k, true, "Moment ...");
+    meldung("");
+    senden("/api/anmelden", { name: el("a-name").value, passwort: el("a-pw").value, merken: el("a-merken").checked })
+      .then(function () { location.href = "/"; })
+      .catch(function (f) { meldung(f.message, "fehler"); arbeitet(k, false, "Anmelden"); });
+    return false;
+  }
+
+  function registrieren(e) {
+    e.preventDefault();
+    if (el("k-pw").value !== el("k-pw2").value) { meldung("Die beiden Passwörter sind nicht gleich.", "fehler"); return false; }
+    var k = el("k-knopf");
+    arbeitet(k, true, "Moment ...");
+    meldung("");
+    senden("/api/registrieren", { name: el("k-name").value, passwort: el("k-pw").value })
+      .then(function (a) {
+        gemerkterStatus = a.status;
+        el("codes").innerHTML = "";
+        a.codes.forEach(function (c) {
+          var d = document.createElement("div");
+          d.textContent = c;
+          el("codes").appendChild(d);
+        });
+        el("hauptteil").hidden = true;
+        el("codes-teil").hidden = false;
+        el("unter").textContent = "Konto „" + a.name + "“ ist angelegt";
+        window.scrollTo(0, 0);
+      })
+      .catch(function (f) { meldung(f.message, "fehler"); arbeitet(k, false, "Konto erstellen"); });
+    return false;
+  }
+
+  function kopieren() {
+    var text = Array.prototype.map.call(el("codes").children, function (d) { return d.textContent; }).join("\n");
+    var fertig = function () { el("kopieren").textContent = "Kopiert ✓"; };
+    var notfall = function () {  // ohne Zugriff auf die Zwischenablage (z. B. unverschluesselte Adresse): Text markieren
+      var bereich = document.createRange();
+      bereich.selectNodeContents(el("codes"));
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(bereich);
+      el("kopieren").textContent = "Markiert: jetzt kopieren (Strg+C)";
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(fertig, notfall);
+    else notfall();
+  }
+
+  function weiter() {
+    if (gemerkterStatus === "aktiv") { location.href = "/"; return; }
+    el("codes-teil").hidden = true;
+    el("hauptteil").hidden = false;
+    reiter("anmelden");
+    arbeitet(el("k-knopf"), false, "Konto erstellen");
+    meldung("Dein Konto wartet auf die Freigabe durch den Administrator. Danach kannst du dich anmelden.", "ok");
+  }
+
+  function zuruecksetzen(e) {
+    e.preventDefault();
+    if (el("v-pw").value !== el("v-pw2").value) { meldung("Die beiden Passwörter sind nicht gleich.", "fehler"); return false; }
+    var k = el("v-knopf");
+    arbeitet(k, true, "Moment ...");
+    meldung("");
+    senden("/api/zuruecksetzen", { name: el("v-name").value, code: el("v-code").value, neues: el("v-pw").value })
+      .then(function () {
+        el("a-name").value = el("v-name").value;
+        el("a-pw").value = "";
+        reiter("anmelden");
+        meldung("Dein Passwort ist neu gesetzt. Melde dich jetzt an. Dieser Code ist verbraucht.", "ok");
+        arbeitet(k, false, "Passwort zurücksetzen");
+      })
+      .catch(function (f) { meldung(f.message, "fehler"); arbeitet(k, false, "Passwort zurücksetzen"); });
+    return false;
+  }
+
+  // Beschriftung je nach Stand: beim allerersten Start legt man den Administrator an
+  fetch("/api/start", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
+    if (s.ersteinrichtung) {
+      el("unter").textContent = "Ersteinrichtung";
+      el("k-info").textContent = "Das erste Konto wird Administrator. Es muss am PC selbst angelegt werden (http://localhost:8000).";
+      reiter("konto");
+    } else if (s.registrierung === "geschlossen") {
+      el("k-info").textContent = "Neue Konten sind gerade nicht erlaubt. Frag den Administrator.";
+      el("k-knopf").disabled = true;
+    } else if (s.registrierung === "freigabe") {
+      el("k-info").textContent = "Neue Konten muss der Administrator freigeben, bevor du dich anmelden kannst.";
+    }
+  }).catch(function () {});
+</script>
+</body>
+</html>

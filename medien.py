@@ -4,7 +4,13 @@ WindowsMedien spricht mit der echten Windows-Mediensteuerung (Spotify) und
 der Windows-Lautstaerke. TestMedien liefert Fake-Daten, damit sich Server und
 Oberflaeche auch ohne Windows und Spotify testen lassen (PHONEBOX_TEST=1).
 """
+import asyncio
 import hashlib
+import time
+from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+
+from protokoll import log
 
 
 def erstellen(test: bool):
@@ -22,6 +28,18 @@ class TestMedien:
         self.nr = 0
         self.spielt = True
         self.laut = 50
+        self.dauer = 200.0
+        self._pos_basis = 0.0
+        self._pos_zeit = time.monotonic()
+
+    def _pos(self):
+        if not self.spielt:
+            return self._pos_basis
+        return min(self.dauer, self._pos_basis + time.monotonic() - self._pos_zeit)
+
+    def _pos_setzen(self, sekunden):
+        self._pos_basis = max(0.0, min(self.dauer, sekunden))
+        self._pos_zeit = time.monotonic()
 
     async def status(self):
         titel, kuenstler, _ = self.LIEDER[self.nr]
@@ -31,17 +49,24 @@ class TestMedien:
             "kuenstler": kuenstler,
             "cover": f"t{self.nr}",
             "laut": self.laut,
+            "dauer": self.dauer,
+            "position": round(self._pos(), 1),
         }
 
     async def befehl(self, befehl: str):
         if befehl == "playpause":
+            self._pos_setzen(self._pos())  # Stand festhalten, dann umschalten
             self.spielt = not self.spielt
         elif befehl == "weiter":
             self.nr = (self.nr + 1) % len(self.LIEDER)
+            self._pos_setzen(0)
         elif befehl == "zurueck":
             self.nr = (self.nr - 1) % len(self.LIEDER)
+            self._pos_setzen(0)
         elif befehl.startswith("laut:"):
             self.laut = _prozent(befehl)
+        elif befehl.startswith("suche:"):
+            self._pos_setzen(_sekunden(befehl))
 
     async def cover(self):
         farbe = self.LIEDER[self.nr][2]
@@ -65,7 +90,13 @@ class WindowsMedien:
         self._cover = None
         self._cover_fuer = None
         self._cover_versuche = 0
+        self._cover_task = None
         self._cover_id = ""
+        self._laut_fehler_gezeigt = False
+        # pycaw/comtypes stellen den Thread, in dem sie laufen, auf einen COM-Modus um, in dem
+        # Windows die Ergebnisse anderer Aufrufe (z. B. Cover lesen) nicht mehr zustellt.
+        # Darum laufen alle Lautstaerke-Aufrufe in einem eigenen Thread.
+        self._com = ThreadPoolExecutor(max_workers=1, thread_name_prefix="com")
 
     async def _sitzung(self):
         """Sucht die laufende Spotify-Sitzung in der Windows-Mediensteuerung."""
@@ -76,8 +107,11 @@ class WindowsMedien:
         return None
 
     async def status(self):
-        laut = self._laut_lesen()
+        laut = await asyncio.get_running_loop().run_in_executor(self._com, self._laut_lesen)
         sitzung = await self._sitzung()
+        if not getattr(self, "_start_gemeldet", False):
+            self._start_gemeldet = True
+            log("Medien-Code mit Cover-Hintergrundladen aktiv")
         if sitzung is None:
             return {
                 "spielt": False,
@@ -88,16 +122,28 @@ class WindowsMedien:
             }
         infos = await sitzung.try_get_media_properties_async()
         spielt = sitzung.get_playback_info().playback_status == self._Status.PLAYING
+        dauer, position = self._zeitleiste(sitzung, spielt, (infos.title, infos.artist))
 
         schluessel = (infos.title, infos.artist)
         if schluessel != self._cover_fuer:
+            log(f"Cover: neues Lied {schluessel[0]!r}, Thumbnail vorhanden: {infos.thumbnail is not None}")
             self._cover_fuer = schluessel
             self._cover = None
             self._cover_versuche = 0
-        # Spotify liefert das Cover manchmal erst kurz nach dem Titel nach
-        if self._cover is None and infos.thumbnail is not None and self._cover_versuche < 5:
+            if self._cover_task is not None:
+                self._cover_task.cancel()
+                self._cover_task = None
+        # Das Cover laedt im Hintergrund, damit ein haengendes Lesen nie die Steuerung blockiert.
+        # Spotify liefert es manchmal erst kurz nach dem Titel nach, daher mehrere Versuche.
+        if (
+            self._cover is None
+            and infos.thumbnail is not None
+            and self._cover_versuche < 5
+            and (self._cover_task is None or self._cover_task.done())
+        ):
             self._cover_versuche += 1
-            self._cover = await self._cover_laden(infos.thumbnail)
+            log(f"Cover: Versuch {self._cover_versuche} fuer {schluessel[0]!r}")
+            self._cover_task = asyncio.create_task(self._cover_holen(schluessel, infos.thumbnail))
         self._cover_id = (
             hashlib.md5(repr(schluessel).encode()).hexdigest()[:8] if self._cover else ""
         )
@@ -107,16 +153,46 @@ class WindowsMedien:
             "kuenstler": infos.artist,
             "cover": self._cover_id,
             "laut": laut,
+            "dauer": dauer,
+            "position": position,
         }
+
+    def _zeitleiste(self, sitzung, spielt, schluessel):
+        """Laenge und aktuelle Position des Lieds in Sekunden (Position wird hochgerechnet)."""
+        try:
+            tl = sitzung.get_timeline_properties()
+            dauer = (tl.end_time - tl.start_time).total_seconds()
+            position = (tl.position - tl.start_time).total_seconds()
+            if spielt:
+                stand = tl.last_updated_time
+                if stand.tzinfo is None:
+                    stand = stand.replace(tzinfo=timezone.utc)
+                position += max(0.0, (datetime.now(timezone.utc) - stand).total_seconds())
+            if schluessel != getattr(self, "_tl_gemeldet", None):
+                self._tl_gemeldet = schluessel
+                log(f"Zeitleiste: Dauer {dauer:.0f} s, Position {position:.0f} s")
+            if dauer <= 0:
+                return 0.0, 0.0
+            return round(dauer, 1), round(max(0.0, min(position, dauer)), 1)
+        except Exception as fehler:
+            if not getattr(self, "_tl_fehler", False):
+                self._tl_fehler = True
+                log("Zeitleiste nicht verfuegbar:", repr(fehler))
+            return 0.0, 0.0
 
     async def befehl(self, befehl: str):
         if befehl.startswith("laut:"):
-            self._laut_setzen(_prozent(befehl))
+            await asyncio.get_running_loop().run_in_executor(
+                self._com, self._laut_setzen, _prozent(befehl)
+            )
             return
         sitzung = await self._sitzung()
         if sitzung is None:
             return
-        if befehl == "playpause":
+        if befehl.startswith("suche:"):
+            # Windows rechnet in 100-Nanosekunden-Schritten
+            await sitzung.try_change_playback_position_async(int(_sekunden(befehl) * 10_000_000))
+        elif befehl == "playpause":
             await sitzung.try_toggle_play_pause_async()
         elif befehl == "weiter":
             await sitzung.try_skip_next_async()
@@ -129,6 +205,23 @@ class WindowsMedien:
         daten = bytes(self._cover)
         art = "image/png" if daten.startswith(b"\x89PNG") else "image/jpeg"
         return daten, art
+
+    async def _cover_holen(self, schluessel, thumbnail):
+        aufgabe = asyncio.ensure_future(self._cover_laden(thumbnail))
+        # asyncio.wait statt wait_for: haengt Windows, warten wir nicht auf das Abbrechen
+        fertig, _ = await asyncio.wait({aufgabe}, timeout=5)
+        if not fertig:
+            log("Cover: Zeitueberschreitung beim Lesen")
+            aufgabe.cancel()
+            return
+        daten = aufgabe.result()
+        if not daten:
+            log("Cover: keine Daten erhalten")
+        elif schluessel != self._cover_fuer:
+            log("Cover: Lied hat inzwischen gewechselt, verworfen")
+        else:
+            log(f"Cover: {len(daten)} Bytes geladen")
+            self._cover = daten
 
     async def _cover_laden(self, thumbnail):
         """Liest das Albumcover aus der Windows-Mediensteuerung."""
@@ -143,7 +236,7 @@ class WindowsMedien:
             DataReader.from_buffer(puffer).read_bytes(daten)
             return bytes(daten)
         except Exception as fehler:  # Cover ist nur ein Extra, nie den Server stoppen
-            print("Cover konnte nicht gelesen werden:", fehler)
+            log("Cover konnte nicht gelesen werden:", fehler)
             return None
 
     def _endpunkt(self):
@@ -159,7 +252,10 @@ class WindowsMedien:
                 return geraet.EndpointVolume
             schnittstelle = geraet.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             return cast(schnittstelle, POINTER(IAudioEndpointVolume))
-        except Exception:
+        except Exception as fehler:
+            if not self._laut_fehler_gezeigt:  # nur einmal melden, nicht jede Sekunde
+                self._laut_fehler_gezeigt = True
+                log("Lautstaerke nicht verfuegbar:", repr(fehler))
             return None
 
     def _laut_lesen(self):
@@ -172,6 +268,13 @@ class WindowsMedien:
         endpunkt = self._endpunkt()
         if endpunkt is not None:
             endpunkt.SetMasterVolumeLevelScalar(prozent / 100, None)
+
+
+def _sekunden(befehl: str) -> float:
+    try:
+        return max(0.0, float(befehl.split(":", 1)[1]))
+    except ValueError:
+        return 0.0
 
 
 def _prozent(befehl: str) -> int:
