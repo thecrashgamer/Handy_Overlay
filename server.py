@@ -11,17 +11,18 @@ import psutil
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketDisconnected
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
 import medien as medien_modul
 import protokoll
+import seitencheck
 import shortcuts
 from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v11 (Fehleranzeige)"
+VERSION = "v12 (Selbstcheck)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
@@ -192,8 +193,13 @@ app = FastAPI(lifespan=lebenszyklus)
 
 @app.get("/")
 async def startseite():
+    html = (ORDNER / "index.html").read_text(encoding="utf-8")
+    text = seitencheck.warnung(html, VERSION)
+    if text:  # eine alte index.html wird trotzdem ausgeliefert, aber mit roter Warnleiste
+        log("WARNUNG:", text)
+        html = seitencheck.mit_warnung(html, text)
     # no-store: Safari darf die Seite nie aus dem Zwischenspeicher zeigen, sonst passen Seite und Server nicht zusammen
-    return FileResponse(ORDNER / "index.html", headers={"Cache-Control": "no-store"})
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/log")
