@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phonebox – Zertifikat installieren</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #121212; color: #fff; font-family: -apple-system, "Segoe UI", sans-serif; padding: 16px; line-height: 1.5; }
+  .seite { max-width: 520px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  .karte { background: #1c1c1c; border-radius: 14px; padding: 16px; margin: 14px 0; }
+  ol { padding-left: 20px; margin: 8px 0 0; }
+  li { margin: 10px 0; }
+  .knopf { display: block; text-align: center; background: #1db954; color: #000; font-weight: bold; text-decoration: none;
+           padding: 14px; border-radius: 10px; font-size: 16px; margin-top: 12px; }
+  .hinweis { color: #9a9a9a; font-size: 13px; }
+  code { background: #121212; padding: 2px 6px; border-radius: 5px; word-break: break-all; font-size: 12px; }
+  a { color: #1db954; }
+</style>
+</head>
+<body>
+<div class="seite">
+  <h1>Zertifikat installieren</h1>
+  <p class="hinweis">Damit dein Handy der Phonebox vertraut und die Verbindung verschlüsselt ist (Passwörter bleiben im WLAN geheim). Das ist nur einmal nötig.</p>
+
+  <div class="karte">
+    <b>iPhone / iPad</b>
+    <ol>
+      <li>Tippe auf <b>Zertifikat laden</b> und dann auf <b>Zulassen</b>.<a class="knopf" href="/ca.crt">Zertifikat laden</a></li>
+      <li>Öffne die <b>Einstellungen</b>. Ganz oben steht <b>„Profil geladen“</b>. Tippe darauf, dann auf <b>Installieren</b> (Code eingeben, falls gefragt) und nochmal <b>Installieren</b>.</li>
+      <li>Gehe zu <b>Einstellungen → Allgemein → Info → Zertifikatsvertrauenseinstellungen</b> und schalte <b>„Phonebox Zertifikat“</b> ein. Dieser Schritt wird oft vergessen, ohne ihn bleibt die Warnung.</li>
+      <li>Öffne die Phonebox neu: <code id="adresse"></code></li>
+    </ol>
+  </div>
+
+  <div class="karte">
+    <b>Computer</b> <span class="hinweis">(nur nötig, wenn du die Phonebox nicht über localhost öffnest)</span>
+    <ol>
+      <li>Lade das Zertifikat: <a href="/ca.crt">ca.crt</a>.</li>
+      <li>Windows: Doppelklick → <b>Zertifikat installieren</b> → <b>Aktueller Benutzer</b> → „Alle Zertifikate in folgendem Speicher speichern“ → <b>Vertrauenswürdige Stammzertifizierungsstellen</b>.</li>
+    </ol>
+  </div>
+
+  <div class="karte">
+    <b>Ist es das richtige Zertifikat?</b>
+    <p class="hinweis" style="margin:6px 0">Der Fingerabdruck (SHA-256) muss mit dem übereinstimmen, den der Server im Protokoll auf dem PC zeigt:</p>
+    <code>{{FINGERABDRUCK}}</code>
+    <p class="hinweis" style="margin:8px 0 0">Das Zertifikat gilt nur für deinen PC. Es enthält keinen geheimen Schlüssel. Den behält der PC im Ordner <code>daten/https</code>, den du niemandem geben solltest.</p>
+  </div>
+</div>
+<script>
+  document.getElementById("adresse").textContent = "https://" + location.host;
+</script>
+</body>
+</html>

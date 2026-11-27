@@ -27,8 +27,13 @@ echo Starte den Server ...
 start "" "%PYW%" server.py
 
 echo.
-echo Fertig. Oeffne am iPhone in Safari eine dieser Adressen, Port 8000:
-powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1' } | ForEach-Object { '  http://' + $_.IPAddress + ':8000' }"
+echo Fertig. Der Server laeuft jetzt unsichtbar im Hintergrund.
 echo.
+echo Am PC:    http://localhost:8000
+echo Am Handy: eine dieser Adressen (verschluesselt, Port 8443):
+powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1' } | ForEach-Object { '  https://' + $_.IPAddress + ':8443' }"
+echo.
+echo Beim ersten Mal am Handy: Adresse + /zertifikat oeffnen und die Anleitung befolgen.
+echo (Die Warnung "nicht privat" einmal bestaetigen, dann das Zertifikat installieren.)
 echo Fragt die Windows-Firewall nach, bitte "Private Netzwerke" erlauben.
 pause

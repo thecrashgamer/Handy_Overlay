@@ -1,10 +1,11 @@
 # server.py - Phonebox-Server: Spotify, Lautstaerke und Claude-Status
 import asyncio
+import contextlib
 import json
 import os
+import signal
 import time
 import traceback
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 import psutil
@@ -20,14 +21,19 @@ import medien as medien_modul
 import protokoll
 import seitencheck
 import shortcuts
+import zertifikate
 from konten import Konten
 from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v15 (Admin)"
+VERSION = "v16 (HTTPS)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
+# HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
+HTTPS_AN = os.environ.get("PHONEBOX_HTTPS", "0" if TEST else "1") == "1"
+HTTPS_PORT = int(os.environ.get("PHONEBOX_HTTPS_PORT", "8443"))
+ZUSATZ_NAMEN = [n for n in os.environ.get("PHONEBOX_ZUSATZ_NAMEN", "").split(",") if n.strip()]  # z. B. Tailscale-Name
 
 SEITE_ERWARTET = VERSION.split(" ")[0]  # so muss SEITE in index.html heissen
 DATEN = Path(os.environ.get("PHONEBOX_DATEN", ORDNER / "daten"))  # hier liegen die Benutzerkonten
@@ -221,14 +227,8 @@ async def schleife():
         await asyncio.sleep(1)
 
 
-@asynccontextmanager
-async def lebenszyklus(app):
-    aufgabe = asyncio.create_task(schleife())
-    yield
-    aufgabe.cancel()
-
-
-app = FastAPI(lifespan=lebenszyklus)
+app = FastAPI()
+zertifikat_info = None  # gesetzt, sobald HTTPS laeuft: Pfade und Fingerabdruck der eigenen CA
 app.include_router(auth.router)
 app.include_router(admin.router)
 
@@ -250,6 +250,24 @@ async def startseite(request: Request):
         html = seitencheck.mit_warnung(html, text)
     # no-store: Safari darf die Seite nie aus dem Zwischenspeicher zeigen, sonst passen Seite und Server nicht zusammen
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/zertifikat")
+async def zertifikat_seite(request: Request):
+    """Oeffentlich: Anleitung, das Zertifikat am Handy zu installieren (enthaelt nur den oeffentlichen Teil)."""
+    if not zertifikat_info:
+        return PlainTextResponse("HTTPS ist nicht eingeschaltet.", status_code=404)
+    html = (ORDNER / "zertifikat.html").read_text(encoding="utf-8")
+    html = html.replace("{{FINGERABDRUCK}}", zertifikat_info["fingerabdruck"])
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/ca.crt")
+async def ca_zertifikat():
+    if not zertifikat_info:
+        return Response(status_code=404)
+    daten = Path(zertifikat_info["ca"]).read_bytes()  # nur ca.pem, nie ein privater Schluessel
+    return Response(daten, media_type="application/x-x509-ca-cert", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/log")
@@ -370,9 +388,67 @@ async def verbindung(websocket: WebSocket):
         ws_token.pop(websocket, None)
 
 
-if __name__ == "__main__":
-    log(f"Phonebox-Server {VERSION} laeuft auf Port {PORT}" + (" (Testmodus)" if TEST else ""))
+class OhneSignale(uvicorn.Server):
+    """Zwei Server in einem Prozess: das Beenden uebernehmen wir selbst, damit beide sauber enden."""
+
+    def install_signal_handlers(self):
+        pass
+
+    @contextlib.contextmanager
+    def capture_signals(self):
+        yield
+
+
+def adressen_zeigen(info):
+    log(f"Am PC:     http://localhost:{PORT}")
+    if info:
+        for ip in zertifikate.lokale_adressen():
+            log(f"Am Handy:  https://{ip}:{HTTPS_PORT}   (Zertifikat einmalig installieren: https://{ip}:{HTTPS_PORT}/zertifikat)")
+        log("Fingerabdruck des Zertifikats (SHA-256):", info["fingerabdruck"])
+
+
+async def laufen():
+    global zertifikat_info
+    info = None
+    if HTTPS_AN:
+        try:
+            info = zertifikate.vorbereiten(DATEN, ZUSATZ_NAMEN)
+            zertifikat_info = info
+            if info["neu_ca"]:
+                log("Neues Zertifikat angelegt. Es muss am Handy einmal installiert werden (Seite /zertifikat).")
+            elif info["neu_server"]:
+                log("Zertifikat fuer neue Adressen erneuert. Das Handy muss nichts neu installieren.")
+        except Exception as fehler:
+            log("HTTPS ist nicht moeglich:", repr(fehler), "- Tipp: pip install cryptography")
+            log("Aus Sicherheitsgruenden laeuft die Phonebox jetzt NUR am PC (localhost), nicht im WLAN.")
+    # Mit HTTPS lauscht http nur am PC selbst; ohne HTTPS (bewusst abgeschaltet) wie frueher im ganzen Netz
+    http_host = "0.0.0.0" if not HTTPS_AN else "127.0.0.1"
+    server = [OhneSignale(uvicorn.Config(app, host=http_host, port=PORT, log_config=None))]
+    if info:
+        server.append(OhneSignale(uvicorn.Config(app, host="0.0.0.0", port=HTTPS_PORT, log_config=None,
+                                                 ssl_certfile=info["cert"], ssl_keyfile=info["key"])))
+    elif not HTTPS_AN:
+        log("WARNUNG: HTTPS ist abgeschaltet. Passwoerter gehen im WLAN unverschluesselt durch die Luft.")
+
+    def beenden(*_):
+        for s in server:
+            s.should_exit = True
+
+    for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        if getattr(signal, name, None):
+            signal.signal(getattr(signal, name), beenden)
+
+    aufgabe = asyncio.create_task(schleife())
+    log(f"Phonebox-Server {VERSION} laeuft" + (" (Testmodus)" if TEST else ""))
+    adressen_zeigen(info)
     if konten.anzahl_benutzer() == 0:
-        log("Noch kein Konto: Oeffne am PC http://localhost:%d und lege das erste Konto an (es wird Administrator)." % PORT)
+        log(f"Noch kein Konto: Oeffne am PC http://localhost:{PORT} und lege das erste Konto an (es wird Administrator).")
+    try:
+        await asyncio.gather(*(s.serve() for s in server))
+    finally:
+        aufgabe.cancel()
+
+
+if __name__ == "__main__":
     # log_config=None, damit der Server auch ohne Konsolenfenster (pythonw) laeuft
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_config=None)
+    asyncio.run(laufen())
