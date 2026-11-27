@@ -19,6 +19,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const page = await browser.newPage({ viewport: { width: 667, height: 375 }, deviceScaleFactor: 1 });
   const text = (sel) => page.textContent(sel);
   const ok = (name) => console.log('ok  -', name);
+  const seitenFehler = [];  // JavaScript-Fehler der Seite: duerfen im normalen Ablauf nie auftreten
+  page.on('pageerror', (e) => seitenFehler.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') seitenFehler.push(m.text()); });
+  const log = async () => (await page.request.get(`${URL}/log`)).text();
   try {
     await page.goto(URL);
     await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('Verbunden'));
@@ -162,6 +166,70 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.click('#rf-ja');
     await page.waitForFunction(() => document.getElementById('hinweis').textContent.includes('herunter'));
     ok('Herunterfahren: nach "Ja" wird es ausgeloest und gemeldet');
+    const prot = await log();
+    assert.ok(prot.includes('Rueckfrage gesendet: Herunterfahren an'), 'Protokoll: Rueckfrage nicht gesendet');
+    assert.ok(prot.includes('Rueckfrage angezeigt auf einer Seite: gezeigt:6'), 'Protokoll: Anzeige nicht gemeldet');
+    assert.ok(!prot.includes('WARNUNG: Seite'), 'aktuelle Seite faelschlich als alt gemeldet');
+    ok('Protokoll belegt: Rueckfrage gesendet und auf der Seite angezeigt');
+    assert.deepStrictEqual(seitenFehler, [], 'JavaScript-Fehler: ' + seitenFehler.join(' | '));
+    ok('keine JavaScript-Fehler im normalen Ablauf');
+
+    // Eine alte Seite ohne Rueckfrage-Fenster (alte index.html oder aus dem Zwischenspeicher)
+    // muss der Server im Protokoll melden, sonst passiert beim Herunterfahren scheinbar nichts.
+    await page.evaluate((p) => { window.alteSeite = new WebSocket('ws://localhost:' + p + '/ws'); }, PORT);
+    await page.waitForFunction(() => window.alteSeite.readyState === 1);
+    await wait(300);
+    assert.ok((await log()).includes('WARNUNG: Seite ohne Versionskennung'), 'alte Seite nicht gemeldet');
+    await page.evaluate(() => ws.send('shortcut:6'));
+    await page.waitForSelector('#rueckfrage', { state: 'visible' });
+    await page.click('#rf-nein');
+    assert.ok((await log()).includes('davon zu alt: alt'), 'Rueckfrage an alte Seite nicht gemeldet');
+    await page.evaluate(() => window.alteSeite.close());
+    ok('alte Seite ohne Versionskennung wird im Protokoll gemeldet');
+
+    // Nachrichten in der Form, wie sie am echten Windows-PC kommen (Spotify zu, Lautstaerke fehlt ...)
+    const ECHT = {
+      'Spotify nicht offen': (d) => { delete d.dauer; delete d.position; d.titel = 'Spotify ist nicht offen'; d.kuenstler = ''; d.cover = ''; d.laut = null; },
+      'leere Werte': (d) => { d.titel = null; d.kuenstler = null; d.laut = null; d.cover = ''; d.dauer = 0; d.position = 0; },
+      'Claude mit Verlauf': (d) => { d.claude = { status: 'arbeitet', text: '', aktion: 'Bearbeitet a.py', projekt: 'X', seit: Date.now() - 5000, dauer: 0, verlauf: [{ zeit: Date.now(), text: 'Bearbeitet a.py' }], jetzt: Date.now() }; },
+      // ein Teil der Nachricht, an dem die Anzeige scheitert: Rueckfrage muss trotzdem erscheinen
+      'kaputte Teile': (d) => { d.shortcuts = {}; d.claude = { status: 'fertig', verlauf: [null] }; },
+    };
+    for (const viewport of [{ width: 667, height: 375 }, { width: 375, height: 667 }]) {
+      for (const [name, form] of Object.entries(ECHT)) {
+        const p2 = await browser.newPage({ viewport });
+        const fehler2 = [];
+        p2.on('pageerror', (e) => fehler2.push(e.message));
+        await p2.routeWebSocket(/\/ws(\?.*)?$/, (wsr) => {
+          const srv = wsr.connectToServer();
+          srv.onMessage((m) => { const d = JSON.parse(m); if (d.version) form(d); wsr.send(JSON.stringify(d)); });
+          wsr.onMessage((m) => srv.send(m));
+        });
+        await p2.goto(URL);
+        await p2.waitForFunction(() => document.getElementById('status').textContent.startsWith('Verbunden'));
+        await p2.evaluate(() => ws.send('shortcut:6'));
+        await p2.waitForSelector('#rueckfrage', { state: 'visible', timeout: 3000 })
+          .catch(() => { throw new Error(`Rueckfrage fehlt bei "${name}" ${viewport.width}x${viewport.height}`); });
+        assert.strictEqual(await p2.textContent('#rf-frage'), 'PC wirklich herunterfahren?');
+        if (name === 'kaputte Teile') {
+          await p2.waitForSelector('#jsfehler', { state: 'visible' });
+          assert.match(await p2.textContent('#jsfehler'), /Extras: .+/, 'Fehler in Extras nicht angezeigt');
+          assert.match(await p2.textContent('#jsfehler'), /Claude: .+/, 'Fehler in Claude nicht angezeigt');
+        } else {
+          assert.deepStrictEqual(fehler2, [], 'JavaScript-Fehler: ' + fehler2.join(' | '));
+          assert.ok(!(await p2.isVisible('#jsfehler')), 'Fehlerleiste ohne Fehler sichtbar');
+        }
+        await p2.click('#rf-nein');
+        await p2.close();
+      }
+    }
+    ok('Rueckfrage erscheint auch mit echten Datenformen und trotz kaputter Teile (beide Ausrichtungen)');
+
+    await page.evaluate(() => setTimeout(() => { throw new Error('Probefehler'); }, 0));
+    await page.waitForFunction(() => document.getElementById('jsfehler').textContent.includes('Probefehler'));
+    await page.click('#jsfehler');
+    assert.ok(!(await page.isVisible('#jsfehler')));
+    ok('JavaScript-Fehler erscheinen als rote Leiste und lassen sich wegtippen');
 
     // Serverfehler erscheinen auf der Seite und der Server laeuft weiter
     await page.evaluate(() => ws.send('fehlertest'));

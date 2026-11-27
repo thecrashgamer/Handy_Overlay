@@ -58,6 +58,11 @@
              background: #1db954; color: #000; font-weight: bold; padding: 8px 16px;
              border-radius: 20px; display: none; }
   #hinweis.fehler { background: #e5484d; color: #fff; }
+  /* JavaScript-Fehler der Seite: bleibt stehen, bis man draufTippt */
+  #jsfehler { display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+              background: #e5484d; color: #fff; font-size: 14px; font-weight: bold;
+              padding: 8px 12px; text-align: left; white-space: pre-wrap; word-break: break-word;
+              max-height: 40vh; overflow-y: auto; }
   /* Claude-Ansicht: woran Claude gerade arbeitet */
   #claudeview { display: none; flex: 1; min-height: 0; align-items: center; justify-content: center;
                 gap: 28px; padding: 8px 20px; }
@@ -154,6 +159,7 @@
   </div>
   <button id="wechsel" onclick="ansichtWechseln()">&#9638;</button>
   <div id="hinweis"></div>
+  <div id="jsfehler" onclick="this.style.display='none'"></div>
   <div id="rueckfrage">
     <div id="rf-icon"></div>
     <div id="rf-frage"></div>
@@ -164,8 +170,37 @@
     </div>
   </div>
 <script>
+  // JavaScript-Fehler nie verschlucken: als rote Leiste oben auf der Seite zeigen
+  var jsFehlerListe = [];
+  function jsFehlerZeigen(text) {
+    try {
+      text = String(text);
+      if (jsFehlerListe.indexOf(text) < 0) jsFehlerListe.push(text);  // gleicher Fehler nur einmal
+      jsFehlerListe = jsFehlerListe.slice(-3);  // die letzten drei reichen
+      var f = document.getElementById("jsfehler");
+      if (!f) return;
+      f.textContent = "Fehler in der Seite: " + jsFehlerListe.join("\n");
+      f.style.display = "block";
+    } catch (e) {}
+  }
+  window.onerror = function (meldung, quelle, zeile, spalte, fehler) {
+    var text = (fehler && fehler.message) || meldung || "unbekannter Fehler";
+    jsFehlerZeigen(text + (zeile ? " (Zeile " + zeile + ")" : ""));
+  };
+  window.addEventListener("unhandledrejection", function (e) {
+    var g = e && e.reason;
+    jsFehlerZeigen("Promise: " + ((g && g.message) || g || "unbekannt"));
+  });
+  // Fuehrt einen Teil der Anzeige aus; ein Fehler darin legt die anderen Teile nicht lahm
+  function teil(name, f) {
+    try { f(); } catch (e) {
+      jsFehlerZeigen(name + ": " + (e && e.message ? e.message : e));
+      if (window.console) console.error(name, e);
+    }
+  }
+
   var ws;
-  var SEITE = "v12";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v13";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -178,54 +213,64 @@
   function el(id) { return document.getElementById(id); }
 
   function verbinden() {
-    ws = new WebSocket("ws://" + location.host + "/ws");
+    // Die Seite nennt dem Server ihre Version, damit er eine alte Seite im Protokoll meldet
+    ws = new WebSocket("ws://" + location.host + "/ws?seite=" + SEITE);
     ws.onopen = function () {
       el("status").textContent = "Verbunden";
     };
     ws.onmessage = function (e) {
-      var d = JSON.parse(e.data);
+      var d;
+      try { d = JSON.parse(e.data); } catch (f) { jsFehlerZeigen("Nachricht unlesbar: " + f.message); return; }
+      if (!d || typeof d !== "object") return;
       if (d.fehler) { hinweisZeigen("Server-Fehler: " + d.fehler, true); return; }
-      el("status").textContent = "Verbunden" + (d.version ? " \u00B7 " + d.version : "");
-      if (d.version && d.version.split(" ")[0] !== SEITE) {
-        // Seite und Server passen nicht zusammen: einmal frisch laden
-        var schon = false;
-        try { schon = sessionStorage.getItem("phonebox-neu") === d.version; sessionStorage.setItem("phonebox-neu", d.version); } catch (e) {}
-        if (!schon) { location.reload(); return; }
-        el("status").textContent = "Seite " + SEITE + " passt nicht zum Server " + d.version.split(" ")[0] + " \u2013 Seite neu laden";
-      }
-      el("titel").textContent = d.titel || "-";
-      el("kuenstler").textContent = d.kuenstler || "";
-      el("play").innerHTML = d.spielt ? "&#9208;" : "&#9654;";
-
-      var cover = el("cover");
-      if (d.cover) {
-        var neu = "/cover?id=" + d.cover;
-        if (cover.getAttribute("src") !== neu) cover.src = neu;
-        cover.style.display = "block";
-      } else {
-        cover.style.display = "none";
-        cover.removeAttribute("src");
-      }
-
-      var reihe = el("lautreihe");
-      if (d.laut === null || d.laut === undefined) {
-        reihe.style.display = "none";
-      } else {
-        reihe.style.display = "flex";
-        // Eigene Eingabe nicht sofort ueberschreiben
-        if (Date.now() - letzteEingabe > 1500) el("laut").value = d.laut;
-      }
-
-      extrasZeigen(d);
-      zeitUebernehmen(d);
-      rueckfrageZeigen(d.rueckfrage);
-
-      claudeZeigen(d.claude || {});
+      var neuLaden = false;
+      teil("Version", function () {
+        el("status").textContent = "Verbunden" + (d.version ? " \u00B7 " + d.version : "");
+        if (d.version && String(d.version).split(" ")[0] !== SEITE) {
+          // Seite und Server passen nicht zusammen: einmal frisch laden
+          var schon = false;
+          try { schon = sessionStorage.getItem("phonebox-neu") === d.version; sessionStorage.setItem("phonebox-neu", d.version); } catch (e) {}
+          if (!schon) { neuLaden = true; return; }
+          el("status").textContent = "Seite " + SEITE + " passt nicht zum Server " + String(d.version).split(" ")[0] + " \u2013 Seite neu laden";
+        }
+      });
+      if (neuLaden) { location.reload(); return; }
+      // Die Rueckfrage zuerst: sie darf nie an einem Fehler in einem anderen Teil scheitern
+      teil("R\u00FCckfrage", function () { rueckfrageZeigen(d.rueckfrage); });
+      teil("Musik", function () { musikZeigen(d); });
+      teil("Extras", function () { extrasZeigen(d); });
+      teil("Zeitleiste", function () { zeitUebernehmen(d); });
+      teil("Claude", function () { claudeZeigen(d.claude || {}); });
     };
     ws.onclose = function () {
       el("status").textContent = "Warte auf PC ...";
       setTimeout(verbinden, 3000);
     };
+  }
+
+  function musikZeigen(d) {
+    el("titel").textContent = d.titel || "-";
+    el("kuenstler").textContent = d.kuenstler || "";
+    el("play").innerHTML = d.spielt ? "&#9208;" : "&#9654;";
+
+    var cover = el("cover");
+    if (d.cover) {
+      var neu = "/cover?id=" + d.cover;
+      if (cover.getAttribute("src") !== neu) cover.src = neu;
+      cover.style.display = "block";
+    } else {
+      cover.style.display = "none";
+      cover.removeAttribute("src");
+    }
+
+    var reihe = el("lautreihe");
+    if (d.laut === null || d.laut === undefined) {
+      reihe.style.display = "none";
+    } else {
+      reihe.style.display = "flex";
+      // Eigene Eingabe nicht sofort ueberschreiben
+      if (Date.now() - letzteEingabe > 1500) el("laut").value = d.laut;
+    }
   }
 
   function extrasZeigen(d) {
@@ -356,24 +401,32 @@
     el("cl-zeit").textContent = text;
   }
 
-  var rueckfrageNr = null, rueckfrageBis = 0;
+  var rueckfrageNr = null, rueckfrageBis = 0, rueckfrageGemeldet = null;
+  var rueckfrageAktuell = null, rueckfrageErledigt = null;
 
   function rueckfrageZeigen(r) {
     var box = el("rueckfrage");
-    if (!r) { box.style.display = "none"; rueckfrageNr = null; return; }
+    if (!r) { box.style.display = "none"; rueckfrageNr = null; rueckfrageErledigt = null; return; }
+    // schon beantwortet oder abgelaufen, der Server hat es nur noch nicht gemeldet
+    if (r.bis === rueckfrageErledigt) { box.style.display = "none"; rueckfrageNr = null; return; }
     rueckfrageNr = r.nr;
-    rueckfrageBis = Date.now() + (r.bis - r.jetzt);  // Frist nach der eigenen Uhr
+    rueckfrageAktuell = r.bis;
+    var frist = Number(r.bis) - Number(r.jetzt);
+    if (isNaN(frist)) frist = 10000;  // fehlende Zeitangabe: Fenster trotzdem zeigen
+    rueckfrageBis = Date.now() + frist;  // Frist nach der eigenen Uhr
     el("rf-icon").textContent = r.icon || "\u26A0";
-    el("rf-frage").textContent = r.frage;
+    el("rf-frage").textContent = r.frage || ((r.name || "Aktion") + " wirklich ausf\u00FChren?");
     el("rf-ja").textContent = "Ja";
     box.style.display = "flex";
     rueckfrageZeit();
+    // Dem Server einmal melden, dass das Fenster wirklich zu sehen ist (steht dann in /log)
+    if (rueckfrageGemeldet !== r.bis) { rueckfrageGemeldet = r.bis; senden("gezeigt:" + r.nr); }
   }
 
   function rueckfrageZeit() {
     if (rueckfrageNr === null) return;
     var rest = Math.ceil((rueckfrageBis - Date.now()) / 1000);
-    if (rest <= 0) { el("rueckfrage").style.display = "none"; rueckfrageNr = null; return; }
+    if (rest <= 0) { el("rueckfrage").style.display = "none"; rueckfrageNr = null; rueckfrageErledigt = rueckfrageAktuell; return; }
     el("rf-zeit").textContent = "Abbruch in " + rest + " s";
   }
 
@@ -381,6 +434,7 @@
     var nr = rueckfrageNr;
     el("rueckfrage").style.display = "none";
     rueckfrageNr = null;
+    rueckfrageErledigt = rueckfrageAktuell;
     senden(ja ? "bestaetigt:" + nr : "abbruch");
   }
 

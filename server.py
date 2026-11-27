@@ -22,12 +22,14 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v12 (Selbstcheck)"
+VERSION = "v13 (Rueckfrage-Diagnose)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
+SEITE_ERWARTET = VERSION.split(" ")[0]  # so muss SEITE in index.html heissen
 medien = medien_modul.erstellen(TEST)
 clients = set()
+seiten = {}  # WebSocket -> Version der Seite (aus ?seite=...), "" bei alten Seiten
 SHORTCUT_DATEI = ORDNER / "shortcuts.json"
 zustand = {
     "medien": {},
@@ -96,6 +98,7 @@ async def an_alle_senden():
             await client.send_text(nachricht)
         except Exception:
             clients.discard(client)
+            seiten.pop(client, None)
 
 
 async def aktualisieren():
@@ -138,6 +141,10 @@ async def shortcut_anfragen(befehl):
             "bis": jetzt_ms() + FRIST_MS,
         }
         await an_alle_senden()
+        # Belegt im Protokoll, dass die Rueckfrage rausging und an welche Seiten
+        alte = [v or "alt" for v in seiten.values() if v != SEITE_ERWARTET]
+        log(f"Rueckfrage gesendet: {eintrag['name']} an {len(clients)} Seite(n)"
+            + (f", davon zu alt: {', '.join(alte)} (dort erscheint kein Fenster)" if alte else ""))
         return
     await shortcut_ausfuehren(eintrag)
 
@@ -261,6 +268,8 @@ async def befehl_bearbeiten(befehl):
         await shortcut_anfragen(befehl)
     elif befehl.startswith("bestaetigt:"):
         await shortcut_bestaetigt(befehl)
+    elif befehl.startswith("gezeigt:"):  # die Seite meldet: Rueckfrage ist zu sehen
+        log("Rueckfrage angezeigt auf einer Seite:", befehl)
     elif befehl == "abbruch":
         zustand["rueckfrage"] = None
         await an_alle_senden()
@@ -277,7 +286,13 @@ async def befehl_bearbeiten(befehl):
 async def verbindung(websocket: WebSocket):
     await websocket.accept()
     shortcuts_neu_laden()
+    seite = websocket.query_params.get("seite", "")[:20]
+    if seite != SEITE_ERWARTET:
+        # z. B. alte index.html im Ordner oder eine alte Seite aus dem Zwischenspeicher des Browsers
+        log(f"WARNUNG: Seite {seite or 'ohne Versionskennung (aelter als v13)'} verbunden, Server ist {SEITE_ERWARTET}."
+            " Rueckfragen (Herunterfahren) erscheinen dort evtl. nicht. index.html ersetzen und Seite neu laden.")
     clients.add(websocket)
+    seiten[websocket] = seite
     await websocket.send_text(nachricht_bauen())
     try:
         while True:
@@ -294,6 +309,7 @@ async def verbindung(websocket: WebSocket):
         pass  # iPhone hat die Verbindung geschlossen (z. B. Seite neu geladen)
     finally:
         clients.discard(websocket)
+        seiten.pop(websocket, None)
 
 
 if __name__ == "__main__":

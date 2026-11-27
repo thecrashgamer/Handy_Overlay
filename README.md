@@ -14,6 +14,8 @@ Von Hand geht es auch: `pip install -r requirements.txt`, dann `python server.py
 
 Die Kacheln stehen in `shortcuts.json` am PC und werden bei Änderungen automatisch neu geladen. Jeder Eintrag hat `name`, optional `icon` und entweder `programm` (Programm, Datei oder Webadresse starten) oder `tasten` (Tastenkürzel, z. B. `win+shift+s`, `ctrl+shift+esc`, `f5`, `stumm`, `playpause`). Außerdem gibt es feste Aktionen mit `aktion`: `sperren` (Win+L lässt sich von Windows aus nicht simulieren, darum die echte Sperr-Funktion), `herunterfahren` und `herunterfahren_stoppen`. Das Herunterfahren verlangt immer eine Rückfrage auf dem iPhone, die der Server selbst prüft (10 Sekunden Zeit, nur genau für diese Kachel) und startet dann mit 15 Sekunden Verzögerung. In dieser Zeit bricht die Kachel „Herunterfahren stoppen“ es ab. Jeder andere Eintrag kann mit `"bestaetigen": true` ebenfalls eine Rückfrage bekommen.
 
+Erscheint die Rückfrage nicht, unter `http://<PC-IP>:8000/log` nachsehen: „Rueckfrage gesendet“ heißt, der Server hat sie geschickt, „Rueckfrage angezeigt“, dass eine Seite sie zeigt. „WARNUNG: Seite … verbunden“ bedeutet, dass eine alte `index.html` läuft (alte Datei im Ordner oder alte Seite im Browser). Dann alle Dateien aus der neuen Version kopieren und die Seite neu laden. JavaScript-Fehler zeigt die Seite selbst als rote Leiste oben.
+
 Das iPhone schickt nur die Nummer der Kachel, nie einen freien Befehl.
 
 ## Claude-Status
