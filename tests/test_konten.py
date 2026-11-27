@@ -220,6 +220,101 @@ class KontenTests(unittest.TestCase):
         self.assertEqual(self.k.anzahl_benutzer(), 1)
 
 
+class RechteTests(unittest.TestCase):
+    def setUp(self):
+        self.ordner = tempfile.TemporaryDirectory()
+        self.k = Konten(os.path.join(self.ordner.name, "t.db"))
+        self.admin, _ = self.k.registrieren("Timo", PW)
+        self.gast, _ = self.k.registrieren("Gast", PW, lokal=False)
+        self.k.status_setzen(self.gast["id"], "aktiv")
+
+    def tearDown(self):
+        self.k.db.close()
+        self.ordner.cleanup()
+
+    def sitzung(self, name):
+        token, _, _ = self.k.anmelden(name, PW)
+        return self.k.sitzung_pruefen(token)
+
+    def test_standardrechte(self):
+        self.assertEqual(konten.rechte(self.sitzung("Gast")), {"musik": True, "shortcuts": False, "admin": False})
+        self.assertEqual(konten.rechte(self.sitzung("Timo")), {"musik": True, "shortcuts": True, "admin": True})
+        self.assertEqual(konten.rechte(None), {"musik": False, "shortcuts": False, "admin": False})
+
+    def test_rechte_aendern_wirkt_sofort(self):
+        token, _, _ = self.k.anmelden("Gast", PW)
+        self.k.recht_setzen(self.gast["id"], "shortcuts", True)
+        self.assertTrue(konten.rechte(self.k.sitzung_pruefen(token))["shortcuts"])
+        self.k.recht_setzen(self.gast["id"], "musik", False)
+        self.assertFalse(konten.rechte(self.k.sitzung_pruefen(token))["musik"])
+        with self.assertRaises(KontoFehler):
+            self.k.recht_setzen(self.gast["id"], "alles", True)
+        with self.assertRaises(KontoFehler):
+            self.k.recht_setzen(9999, "musik", True)
+
+    def test_admin_behaelt_alles_auch_mit_abgeschalteten_flags(self):
+        self.k.recht_setzen(self.admin["id"], "musik", False)
+        self.k.recht_setzen(self.admin["id"], "shortcuts", False)
+        self.assertEqual(konten.rechte(self.sitzung("Timo")), {"musik": True, "shortcuts": True, "admin": True})
+
+    def test_alte_datenbank_wird_ohne_verlust_erweitert(self):
+        import sqlite3
+        pfad = os.path.join(self.ordner.name, "alt.db")
+        db = sqlite3.connect(pfad)
+        db.executescript("""
+            CREATE TABLE benutzer (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, name_klein TEXT NOT NULL UNIQUE,
+                pw_hash TEXT NOT NULL, rolle TEXT NOT NULL DEFAULT 'benutzer', status TEXT NOT NULL DEFAULT 'wartet',
+                erstellt INTEGER NOT NULL, letzte_anmeldung INTEGER);
+        """)
+        db.execute("INSERT INTO benutzer(name,name_klein,pw_hash,rolle,status,erstellt) VALUES('Alt','alt',?, 'benutzer','aktiv',1)",
+                   (konten.pw_hash(PW),))
+        db.commit(); db.close()
+        k = Konten(pfad)  # stoesst die Migration an
+        try:
+            b = k.finden("alt")
+            self.assertEqual((b["darf_musik"], b["darf_shortcuts"]), (True, False))  # sicherer Standard
+            k.anmelden("Alt", PW)  # das alte Passwort funktioniert weiter
+            Konten(pfad)  # ein zweites Oeffnen macht keine Probleme
+        finally:
+            k.db.close()
+
+    def test_aktivitaet_protokollieren_und_filtern(self):
+        self.k.protokoll("shortcut", "Rechner ausgelöst", self.admin, "10.0.0.2", jetzt=100)
+        self.k.protokoll("verweigert", "Herunterfahren", self.gast, "10.0.0.3", jetzt=200)
+        self.k.protokoll("anmeldung-fehler", "Name 'x'", None, "10.0.0.9", jetzt=300)
+        alle = self.k.aktivitaet_liste()
+        self.assertEqual([a["art"] for a in alle], ["anmeldung-fehler", "verweigert", "shortcut"])  # neueste zuerst
+        self.assertEqual(alle[1]["benutzer"], "Gast")
+        self.assertEqual(alle[0]["benutzer"], "")
+        self.assertEqual(len(self.k.aktivitaet_liste(art="shortcut")), 1)
+        self.assertEqual(len(self.k.aktivitaet_liste(art="shortcut,verweigert")), 2)  # mehrere Arten
+        self.assertEqual(len(self.k.aktivitaet_liste(art="gibtsnicht")), 0)
+        self.assertEqual(len(self.k.aktivitaet_liste(art="x' OR '1'='1")), 0)  # keine SQL-Einschleusung
+        self.assertEqual(len(self.k.aktivitaet_liste(benutzer="gast")), 1)
+        self.assertEqual(len(self.k.aktivitaet_liste(limit=2)), 2)
+
+    def test_protokoll_ueberlebt_geloeschtes_konto_und_kuerzt_texte(self):
+        self.k.protokoll("shortcut", "x" * 1000, self.gast, "1.2.3.4" * 30)
+        self.k.loeschen(self.gast["id"], durch_id=self.admin["id"])
+        eintrag = self.k.aktivitaet_liste()[0]
+        self.assertEqual(eintrag["benutzer"], "Gast")
+        self.assertLessEqual(len(eintrag["text"]), 300)
+        self.assertLessEqual(len(eintrag["ip"]), 60)
+
+    def test_protokoll_wird_gekuerzt(self):
+        for i in range(30):
+            self.k.protokoll("shortcut", f"Eintrag {i}")
+        self.k.aktivitaet_aufraeumen(behalten=10)
+        liste = self.k.aktivitaet_liste()
+        self.assertEqual(len(liste), 10)
+        self.assertEqual(liste[0]["text"], "Eintrag 29")  # die neuesten bleiben
+
+    def test_protokoll_fehler_stoeren_nicht(self):
+        self.k.db.close()
+        self.k.protokoll("shortcut", "geht ins Leere")  # darf keine Ausnahme werfen
+        self.k.db = Konten(os.path.join(self.ordner.name, "neu.db")).db
+
+
 class BremseTests(unittest.TestCase):
     def test_sperrt_nach_fuenf_fehlern_und_gibt_wieder_frei(self):
         b = Bremse(max_fehler=5, fenster=600, sperre=300)

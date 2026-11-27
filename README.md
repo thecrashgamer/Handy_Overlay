@@ -48,6 +48,18 @@ Beim ersten Start legt der Server ein eigenes Zertifikat an (Ordner `daten/https
 
 **Wichtig:** Die Datei `daten/https/ca-key.pem` ist der geheime Schlüssel deiner Zertifizierungsstelle. Wer ihn hat, könnte Zertifikate ausstellen, denen dein Handy vertraut. Gib den Ordner `daten` nie weiter. Hast du den Verdacht, dass er geklaut wurde: Ordner `daten/https` löschen, Server neu starten, das Profil am Handy entfernen und das neue installieren.
 
+## Rechte und Aktivitätsprotokoll
+
+Administratoren dürfen alles. Für normale Benutzer stellst du unter Konto → Verwalten pro Konto ein:
+- **Musik** (Standard: an): Titel wechseln, Pause, Lautstärke, Zeitleiste.
+- **Shortcuts** (Standard: aus): Kacheln auslösen. Im Admin-Bereich kannst du einzelne Kacheln zusätzlich auf „Nur für Administratoren“ setzen. **Herunterfahren** und **Herunterfahren stoppen** sind immer nur für Administratoren.
+
+Gesperrte Kacheln erscheinen mit einem Schloss. Der Server prüft die Rechte bei **jedem** Befehl neu, nicht nur die Oberfläche. Wer Befehle an der Oberfläche vorbei schickt, wird abgewiesen und im Protokoll vermerkt. Eine Rückfrage (z. B. vor dem Herunterfahren) sieht und bestätigt nur der, der sie ausgelöst hat. Rechte, die du änderst, gelten sofort, auch für schon geöffnete Seiten.
+
+Unter Konto → „Aktivitätsprotokoll ansehen“ (nur Administratoren) steht, wer wann was getan hat: Anmeldungen und Fehlversuche (mit Adresse), ausgelöste Shortcuts, Musiksteuerung, verweigerte Zugriffe und alle Änderungen in der Verwaltung. Passwörter stehen dort nie. Aufbewahrt werden die letzten 5000 Einträge. Eine Sperre wegen vieler Fehlversuche erscheint nur einmal pro 5 Minuten, damit niemand das Protokoll fluten kann.
+
+Hinweis beim Update einer älteren Version: Bestehende normale Benutzer behalten die Musiksteuerung, bekommen aber **keine** Shortcuts mehr, bis du sie freigibst.
+
 ## Shortcut-Tasten und Admin-Bereich
 
 Administratoren legen die Kacheln auf einer eigenen Seite an: `http://localhost:8000/admin` (auch über Konto → „Shortcuts anlegen und bearbeiten“). Dort gibt es eine Vorschau wie am Handy, Vorlagen, eine Symbol-Auswahl, eine Aufnahme für Tastenkürzel und Pfeile für die Reihenfolge. Gespeichert wird nur mit deinem Passwort. Am Handy erscheint die neue Liste sofort, ohne Neuladen.
@@ -83,6 +95,7 @@ node tests/ui.test.js                 # UI-Test mit Playwright
 node tests/auth.test.js               # Konten-Test
 node tests/admin.test.js              # Admin-Bereich-Test
 node tests/https.test.js              # HTTPS-Test
+node tests/rechte.test.js             # Rechte und Aktivitätsprotokoll
 # test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
@@ -95,6 +108,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `medien.py` | Spotify, Cover und Lautstärke (Windows) bzw. Fake-Daten (Test) |
 | `shortcuts.py`, `shortcuts.json` | Shortcut-Logik, Prüfung und Vorlage |
 | `admin.py`, `admin.html` | Admin-Bereich für die Shortcuts |
+| `aktivitaet.html` | Aktivitätsprotokoll |
 | `index.html` | Oberfläche fürs iPhone |
 | `zertifikate.py`, `zertifikat.html` | HTTPS: eigenes Zertifikat und Anleitung für das Handy |
 | `anmelden.html`, `konto.html` | Anmeldung, Konto und Benutzerverwaltung |

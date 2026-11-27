@@ -155,7 +155,7 @@
       art: e.programm !== undefined ? "programm" : e.tasten !== undefined ? "tasten" : "aktion",
       programm: e.programm || "", argumente: (e.argumente || []).map(function (a) { return /\s/.test(a) ? '"' + a + '"' : a; }).join(" "),
       tasten: e.tasten || "", aktion: e.aktion || "sperren",
-      bestaetigen: !!e.bestaetigen, frage: e.frage || ""
+      bestaetigen: !!e.bestaetigen, frage: e.frage || "", nur_admin: !!e.nur_admin
     };
   }
 
@@ -175,6 +175,7 @@
     } else if (f.art === "tasten") e.tasten = f.tasten.trim();
     else e.aktion = f.aktion;
     if (f.bestaetigen) e.bestaetigen = true;
+    if (f.nur_admin) e.nur_admin = true;
     if (f.frage.trim()) e.frage = f.frage.trim();
     return e;
   }
@@ -265,6 +266,12 @@
     haken.disabled = immer;
     haken.onchange = function () { f.bestaetigen = haken.checked; zeichnen(); };
     k.appendChild(h("div", { class: "haken" }, [haken, h("label", { for: "b" + i, style: "margin:0;color:#fff;font-size:14px", text: immer ? "Fragt immer nach (nicht abschaltbar)" : "Vor dem Ausführen nachfragen" })]));
+    var adminImmer = f.art === "aktion" && (f.aktion === "herunterfahren" || f.aktion === "herunterfahren_stoppen");
+    var nurAdmin = h("input", { type: "checkbox", id: "a" + i });
+    nurAdmin.checked = adminImmer || f.nur_admin;
+    nurAdmin.disabled = adminImmer;
+    nurAdmin.onchange = function () { f.nur_admin = nurAdmin.checked; geaendert(); };
+    k.appendChild(h("div", { class: "haken" }, [nurAdmin, h("label", { for: "a" + i, style: "margin:0;color:#fff;font-size:14px", text: adminImmer ? "Nur für Administratoren (immer)" : "Nur für Administratoren" })]));
     if (haken.checked) {
       var frage = h("input", { type: "text", value: f.frage, maxlength: "100", placeholder: "Frage, z. B. PC wirklich herunterfahren?" });
       frage.oninput = function () { f.frage = frage.value; geaendert(); };
@@ -289,7 +296,7 @@
 
   function neu(vorlage) {
     if (liste.length >= MAXIMAL) { meldung("Mehr als " + MAXIMAL + " Shortcuts gehen nicht.", "fehler"); return; }
-    var f = Object.assign({ name: "", icon: "", art: "programm", programm: "", argumente: "", tasten: "", aktion: "sperren", bestaetigen: false, frage: "" }, vorlage || {});
+    var f = Object.assign({ name: "", icon: "", art: "programm", programm: "", argumente: "", tasten: "", aktion: "sperren", bestaetigen: false, frage: "", nur_admin: false }, vorlage || {});
     var basis = f.name, n = 2;
     while (basis && liste.some(function (x) { return x.name.toLowerCase() === f.name.toLowerCase(); })) f.name = basis + " " + n++;
     liste.push(f);

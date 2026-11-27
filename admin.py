@@ -64,6 +64,7 @@ async def speichern(ein: SpeichernEin, request: Request):
         return auth.fehler_antwort(auth.warte_text(rest), 429)
     if not auth.konten.passwort_stimmt(b["id"], ein.passwort):
         auth.bremse_konto.fehler(schluessel)
+        auth.konten.protokoll("sicherheit", "Shortcuts speichern mit falschem Passwort", b, auth.adresse(request))
         return auth.fehler_antwort("Das Passwort stimmt nicht.", 403)
     auth.bremse_konto.erfolg(schluessel)
     try:
@@ -72,4 +73,5 @@ async def speichern(ein: SpeichernEin, request: Request):
         return auth.fehler_antwort(str(f), 400)
     shortcuts.speichern(eigene_datei, liste)
     log(f"Admin {b['name']}: Shortcuts gespeichert ({len(liste)} Eintraege): " + ", ".join(e["name"] for e in liste))
+    auth.konten.protokoll("admin", f"Shortcuts gespeichert ({len(liste)} Einträge)", b, auth.adresse(request))
     return JSONResponse({"ok": True, "shortcuts": liste})

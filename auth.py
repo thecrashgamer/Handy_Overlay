@@ -1,5 +1,6 @@
 """Anmeldung und Zugriffsschutz der Phonebox: Routen, Cookie, Bremse gegen Raten."""
 import asyncio
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -7,7 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from konten import Bremse, KontoFehler
+from konten import Bremse, KontoFehler, rechte
 from protokoll import log
 
 COOKIE = "phonebox_session"
@@ -59,6 +60,17 @@ def cookie_setzen(antwort, token, dauer, request):
 def seite(name):
     html = (ordner / name).read_text(encoding="utf-8")
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+_gesperrt_gemeldet = {}
+
+
+def sperre_melden(schluessel, ip, was):
+    """Eine Sperre nur einmal pro 5 Minuten ins Protokoll schreiben, damit ein Angreifer es nicht fluten kann."""
+    jetzt = time.time()
+    if jetzt - _gesperrt_gemeldet.get(schluessel, 0) > 300:
+        _gesperrt_gemeldet[schluessel] = jetzt
+        konten.protokoll("sicherheit", f"{was}: zu viele Fehlversuche, vorübergehend gesperrt", None, ip)
 
 
 def warte_text(sekunden):
@@ -130,7 +142,7 @@ async def ich(request: Request):
     b = benutzer_aus(request.cookies)
     if not b:
         return fehler_antwort("Nicht angemeldet.", 401)
-    return JSONResponse({"id": b["id"], "name": b["name"], "rolle": b["rolle"],
+    return JSONResponse({"id": b["id"], "name": b["name"], "rolle": b["rolle"], "rechte": rechte(b),
                          "codes_uebrig": konten.codes_uebrig(b["id"])}, headers={"Cache-Control": "no-store"})
 
 
@@ -146,6 +158,7 @@ async def registrieren(ein: RegistrierenEin, request: Request):
     except KontoFehler as f:
         return fehler_antwort(f.text, f.status)
     log(f"Konto angelegt: {benutzer['name']} ({benutzer['rolle']}, {benutzer['status']}) von {ip}")
+    konten.protokoll("konto", f"Konto angelegt ({benutzer['rolle']}, {benutzer['status']})", benutzer, ip)
     antwort = JSONResponse({"ok": True, "name": benutzer["name"], "status": benutzer["status"],
                             "rolle": benutzer["rolle"], "codes": codes},
                            headers={"Cache-Control": "no-store"})
@@ -161,6 +174,7 @@ async def anmelden(ein: AnmeldenEin, request: Request):
     schluessel = f"{ip}|{ein.name.strip().lower()}"
     rest = max(bremse_konto.rest(schluessel), bremse_adresse.rest(ip))
     if rest:
+        sperre_melden(schluessel, ip, f"Anmeldung {ein.name[:30]!r}")
         return fehler_antwort(warte_text(rest), 429)
     try:
         token, benutzer, dauer = await asyncio.to_thread(konten.anmelden, ein.name, ein.passwort, ein.merken)
@@ -169,9 +183,11 @@ async def anmelden(ein: AnmeldenEin, request: Request):
             bremse_konto.fehler(schluessel)
             bremse_adresse.fehler(ip)
             log(f"Anmeldung fehlgeschlagen: {ein.name[:30]!r} von {ip}")
+            konten.protokoll("anmeldung-fehler", f"Falsche Zugangsdaten für {ein.name[:30]!r}", None, ip)
         return fehler_antwort(f.text, f.status)
     bremse_konto.erfolg(schluessel)
     log(f"Angemeldet: {benutzer['name']} von {ip}")
+    konten.protokoll("anmeldung", "Angemeldet" + (" (angemeldet bleiben)" if ein.merken else ""), benutzer, ip)
     antwort = JSONResponse({"ok": True, "name": benutzer["name"], "rolle": benutzer["rolle"]},
                            headers={"Cache-Control": "no-store"})
     cookie_setzen(antwort, token, dauer, request)
@@ -180,6 +196,9 @@ async def anmelden(ein: AnmeldenEin, request: Request):
 
 @router.post("/api/abmelden")
 async def abmelden(request: Request):
+    b = benutzer_aus(request.cookies)
+    if b:
+        konten.protokoll("abmeldung", "Abgemeldet", b, adresse(request))
     konten.abmelden(request.cookies.get(COOKIE))
     antwort = JSONResponse({"ok": True})
     antwort.delete_cookie(COOKIE, path="/")
@@ -208,6 +227,7 @@ async def passwort_aendern(ein: PwAendernEin, request: Request):
         return fehler_antwort(f.text, f.status)
     bremse_konto.erfolg(schluessel)
     log(f"Passwort geaendert: {b['name']}")
+    konten.protokoll("passwort", "Passwort geändert", b, adresse(request))
     return JSONResponse({"ok": True})
 
 
@@ -227,6 +247,7 @@ async def codes_neu(ein: PasswortEin, request: Request):
             bremse_konto.fehler(schluessel)
         return fehler_antwort(f.text, f.status)
     bremse_konto.erfolg(schluessel)
+    konten.protokoll("passwort", "Neue Wiederherstellungscodes erzeugt", b, adresse(request))
     return JSONResponse({"ok": True, "codes": codes}, headers={"Cache-Control": "no-store"})
 
 
@@ -244,9 +265,11 @@ async def zuruecksetzen(ein: ZuruecksetzenEin, request: Request):
             bremse_konto.fehler(schluessel)
             bremse_adresse.fehler(ip)
             log(f"Zuruecksetzen fehlgeschlagen: {ein.name[:30]!r} von {ip}")
+            konten.protokoll("sicherheit", f"Zurücksetzen mit falschem Code für {ein.name[:30]!r}", None, ip)
         return fehler_antwort(f.text, f.status)
     bremse_konto.erfolg(schluessel)
     log(f"Passwort zurueckgesetzt: {ein.name[:30]} von {ip}")
+    konten.protokoll("passwort", "Passwort mit Wiederherstellungscode zurückgesetzt", konten.finden(ein.name), ip)
     return JSONResponse({"ok": True})
 
 
@@ -275,8 +298,12 @@ async def benutzer_aktion(ein: AktionEin, request: Request):
     b, fehler = brauche_admin(request)
     if fehler:
         return fehler
+    ziel = next((x for x in konten.liste() if x["id"] == ein.id), None)
     try:
-        if ein.aktion == "freigeben":
+        if ein.aktion in ("musik_an", "musik_aus", "shortcuts_an", "shortcuts_aus"):
+            recht, wert = ein.aktion.rsplit("_", 1)
+            konten.recht_setzen(ein.id, recht, wert == "an")
+        elif ein.aktion == "freigeben":
             konten.status_setzen(ein.id, "aktiv", b["id"])
         elif ein.aktion == "sperren":
             konten.status_setzen(ein.id, "gesperrt", b["id"])
@@ -289,6 +316,7 @@ async def benutzer_aktion(ein: AktionEin, request: Request):
     except KontoFehler as f:
         return fehler_antwort(f.text, f.status)
     log(f"Admin {b['name']}: {ein.aktion} fuer Konto {ein.id}")
+    konten.protokoll("admin", f"{ein.aktion}: {ziel['name'] if ziel else ein.id}", b, adresse(request))
     return JSONResponse({"ok": True})
 
 
@@ -302,7 +330,27 @@ async def einstellungen(ein: EinstellungEin, request: Request):
     except KontoFehler as f:
         return fehler_antwort(f.text, f.status)
     log(f"Admin {b['name']}: Registrierung = {ein.registrierung}")
+    konten.protokoll("admin", f"Registrierung: {ein.registrierung}", b, adresse(request))
     return JSONResponse({"ok": True})
+
+
+@router.get("/aktivitaet")
+async def aktivitaet_seite(request: Request):
+    b = benutzer_aus(request.cookies)
+    if not b:
+        return RedirectResponse("/anmelden", status_code=303)
+    if b["rolle"] != "admin":
+        return HTMLResponse("Das Aktivitätsprotokoll ist nur für Administratoren.", status_code=403)
+    return seite("aktivitaet.html")
+
+
+@router.get("/api/aktivitaet")
+async def aktivitaet_liste(request: Request, limit: int = 200, art: str = "", benutzer: str = ""):
+    b, fehler = brauche_admin(request)
+    if fehler:
+        return fehler
+    return JSONResponse({"eintraege": konten.aktivitaet_liste(limit, art or None, benutzer or None)},
+                        headers={"Cache-Control": "no-store"})
 
 
 # ---------------------------------------------------------------- Schutz gegen fremde Webseiten

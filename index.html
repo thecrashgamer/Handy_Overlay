@@ -51,6 +51,9 @@
   .kachel { width: 92px; height: 80px; border-radius: 14px; font-size: 13px; padding: 4px;
             display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
   .kachel .symbol { font-size: 26px; line-height: 1; }
+  .kachel.gesperrt { opacity: .4; }
+  button:disabled { opacity: .35; }
+  #ohnemusik { display: none; color: #f5a623; font-size: 13px; margin-top: 10px; }
   #keine { color: #b3b3b3; max-width: 280px; }
   #wechsel { position: fixed; right: 10px; bottom: 10px; width: 44px; height: 44px;
              font-size: 20px; background: rgba(40, 40, 40, .9); }
@@ -135,6 +138,7 @@
         <button id="play" onclick="senden('playpause')">&#9654;</button>
         <button id="weiter" onclick="senden('weiter')">&#9197;</button>
       </div>
+      <div id="ohnemusik">Die Musiksteuerung ist für dein Konto abgeschaltet.</div>
       <div id="lautreihe">
         <span>&#128265;</span>
         <input id="laut" type="range" min="0" max="100" step="1">
@@ -204,7 +208,7 @@
   }
 
   var ws;
-  var SEITE = "v16";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v17";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -253,6 +257,7 @@
       teil("Musik", function () { musikZeigen(d); });
       teil("Extras", function () { extrasZeigen(d); });
       teil("Zeitleiste", function () { zeitUebernehmen(d); });
+      teil("Rechte", function () { rechteZeigen(d.rechte); });
       teil("Claude", function () { claudeZeigen(d.claude || {}); });
     };
     ws.onclose = function () {
@@ -260,6 +265,13 @@
       anmeldungPruefen();  // abgelaufene Sitzung: zur Anmeldung statt endlos neu zu verbinden
       setTimeout(verbinden, 3000);
     };
+  }
+
+  function rechteZeigen(r) {
+    // Ohne Musik-Recht sind Tasten und Regler gesperrt (der Server lehnt die Befehle ohnehin ab)
+    var darf = !r || r.musik !== false;
+    ["zurueck", "play", "weiter", "laut", "zeit"].forEach(function (id) { el(id).disabled = !darf; });
+    el("ohnemusik").style.display = darf ? "none" : "block";
   }
 
   function musikZeigen(d) {
@@ -312,16 +324,17 @@
       }
       liste.forEach(function (eintrag, i) {
         var b = document.createElement("button");
-        b.className = "kachel";
+        b.className = "kachel" + (eintrag.erlaubt === false ? " gesperrt" : "");
         var symbol = document.createElement("span");
         symbol.className = "symbol";
-        symbol.textContent = eintrag.icon || "\u25B6";
+        symbol.textContent = eintrag.erlaubt === false ? "\uD83D\uDD12" : (eintrag.icon || "\u25B6");
         var name = document.createElement("span");
         name.textContent = eintrag.name;
         b.appendChild(symbol);
         b.appendChild(name);
         b.onclick = function () {
           if (!ws || ws.readyState !== 1) { hinweisZeigen("Keine Verbindung zum PC", true); return; }
+          if (eintrag.erlaubt === false) { hinweisZeigen("Dafür hast du keine Berechtigung.", true); return; }
           hinweisZeigen(eintrag.name + " ...", false);  // sofortige Rueckmeldung: der Tipp ist angekommen
           senden("shortcut:" + i);
         };

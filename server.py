@@ -22,12 +22,12 @@ import protokoll
 import seitencheck
 import shortcuts
 import zertifikate
-from konten import Konten
+from konten import Konten, rechte
 from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v16 (HTTPS)"
+VERSION = "v17 (Rechte)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -41,6 +41,7 @@ konten = Konten(DATEN / "phonebox.db")
 auth.einrichten(konten, ORDNER)
 medien = medien_modul.erstellen(TEST)
 clients = set()
+ws_ip = {}  # WebSocket -> Adresse des Geraets, fuers Aktivitaetsprotokoll
 ws_token = {}  # WebSocket -> Sitzungs-Schluessel, damit gesperrte oder abgemeldete Geraete getrennt werden
 seiten = {}  # WebSocket -> Version der Seite (aus ?seite=...), "" bei alten Seiten
 SHORTCUT_VORLAGE = ORDNER / "shortcuts.json"  # mitgelieferte Standardliste (im Git)
@@ -57,6 +58,14 @@ CLAUDE_ABLAUF_MS = 10 * 60 * 1000  # nach 10 Minuten Stille gilt Claude als ruhi
 zustand["rueckfrage"] = None  # wartet auf Bestaetigung: {"nr", "name", "icon", "frage", "bis"}
 shortcut_liste = []
 shortcut_stand = None  # (Pfad, Aenderungszeit) der geladenen Liste
+
+
+class Verboten(Exception):
+    """Der Benutzer darf das nicht. Wird dem Geraet als Meldung gezeigt und im Aktivitaetsprotokoll vermerkt."""
+
+    def __init__(self, was, text="Dafür hast du keine Berechtigung."):
+        super().__init__(text)
+        self.was, self.text = was, text
 
 
 def jetzt_ms():
@@ -100,26 +109,36 @@ def shortcut_pfad():
     return SHORTCUT_DATEI if SHORTCUT_DATEI.exists() else SHORTCUT_VORLAGE
 
 
-def nachricht_bauen():
+def nachricht_bauen(benutzer):
+    """Die Nachricht fuer genau dieses Geraet: mit seinen Rechten, ohne fremde Rueckfragen."""
+    r = rechte(benutzer)
+    frage = zustand["rueckfrage"]
+    eigene_frage = frage if frage and frage.get("von") == benutzer["id"] else None
     return json.dumps({
         "version": VERSION,
         **zustand["medien"],
         "claude": {**zustand["claude"], "jetzt": jetzt_ms()},
         "system": zustand["system"],
-        "shortcuts": [{"name": e["name"], "icon": e.get("icon", "")} for e in shortcut_liste],
+        "rechte": r,
+        "shortcuts": [{"name": e["name"], "icon": e.get("icon", ""), "erlaubt": shortcuts.darf_ausloesen(e, r)}
+                      for e in shortcut_liste],
         "shortcut": zustand["shortcut"],
-        "rueckfrage": {**zustand["rueckfrage"], "jetzt": jetzt_ms()} if zustand["rueckfrage"] else None,
+        "rueckfrage": {**{k: v for k, v in eigene_frage.items() if k != "von"}, "jetzt": jetzt_ms()} if eigene_frage else None,
     })
 
 
 async def an_alle_senden():
-    nachricht = nachricht_bauen()
     for client in list(clients):
+        benutzer = konten.sitzung_pruefen(ws_token.get(client))
+        if benutzer is None:  # Sitzung beendet: verbindungen_pruefen trennt das Geraet gleich
+            continue
         try:
-            await client.send_text(nachricht)
+            await client.send_text(nachricht_bauen(benutzer))
         except Exception:
             clients.discard(client)
             seiten.pop(client, None)
+            ws_token.pop(client, None)
+            ws_ip.pop(client, None)
 
 
 async def aktualisieren():
@@ -148,11 +167,13 @@ def eintrag_holen(befehl):
         return None, None
 
 
-async def shortcut_anfragen(befehl):
+async def shortcut_anfragen(befehl, benutzer, ip):
     """Antippen einer Kachel. Gefaehrliches (z. B. Herunterfahren) wird erst nach Rueckfrage ausgefuehrt."""
     nummer, eintrag = eintrag_holen(befehl)
     if eintrag is None:
         return
+    if not shortcuts.darf_ausloesen(eintrag, rechte(benutzer)):
+        raise Verboten(f"Shortcut \u201e{eintrag['name']}\u201c")
     if shortcuts.braucht_bestaetigung(eintrag):
         zustand["rueckfrage"] = {
             "nr": nummer,
@@ -160,6 +181,7 @@ async def shortcut_anfragen(befehl):
             "icon": eintrag.get("icon", ""),
             "frage": shortcuts.frage(eintrag),
             "bis": jetzt_ms() + FRIST_MS,
+            "von": benutzer["id"],  # nur dieser Benutzer sieht die Frage und darf sie bestaetigen
         }
         await an_alle_senden()
         # Belegt im Protokoll, dass die Rueckfrage rausging und an welche Seiten
@@ -167,22 +189,26 @@ async def shortcut_anfragen(befehl):
         log(f"Rueckfrage gesendet: {eintrag['name']} an {len(clients)} Seite(n)"
             + (f", davon zu alt: {', '.join(alte)} (dort erscheint kein Fenster)" if alte else ""))
         return
-    await shortcut_ausfuehren(eintrag)
+    await shortcut_ausfuehren(eintrag, benutzer, ip)
 
 
-async def shortcut_bestaetigt(befehl):
-    """Nur gueltig, wenn vorher genau dieser Eintrag angefragt wurde und die Frist noch laeuft."""
+async def shortcut_bestaetigt(befehl, benutzer, ip):
+    """Nur gueltig, wenn dieser Benutzer vorher genau diesen Eintrag angefragt hat und die Frist noch laeuft."""
     r = zustand["rueckfrage"]
     nummer, eintrag = eintrag_holen(befehl)
+    if r and r.get("von") != benutzer["id"]:  # fremde Rueckfrage: nicht anfassen und nicht bestaetigen
+        raise Verboten("Bestätigung einer fremden Rückfrage")
     zustand["rueckfrage"] = None
     if not r or eintrag is None or r["nr"] != nummer or r["name"] != eintrag["name"] or jetzt_ms() > r["bis"]:
         log("Bestaetigung abgelehnt (keine offene Rueckfrage oder abgelaufen):", befehl)
         await an_alle_senden()
         return
-    await shortcut_ausfuehren(eintrag)
+    if not shortcuts.darf_ausloesen(eintrag, rechte(benutzer)):  # Rechte koennen sich inzwischen geaendert haben
+        raise Verboten(f"Shortcut \u201e{eintrag['name']}\u201c")
+    await shortcut_ausfuehren(eintrag, benutzer, ip)
 
 
-async def shortcut_ausfuehren(eintrag):
+async def shortcut_ausfuehren(eintrag, benutzer, ip):
     ok = True
     if not TEST:  # im Testmodus nichts am Rechner ausfuehren
         try:
@@ -196,7 +222,8 @@ async def shortcut_ausfuehren(eintrag):
         "ok": ok,
         "text": shortcuts.meldung(eintrag),
     }
-    log("Shortcut:", eintrag["name"], "ok" if ok else "FEHLER")
+    log("Shortcut:", eintrag["name"], "ok" if ok else "FEHLER", "von", benutzer["name"])
+    konten.protokoll("shortcut", f"{eintrag['name']}: " + ("ausgelöst" if ok else "FEHLER"), benutzer, ip)
     await an_alle_senden()
 
 
@@ -331,19 +358,28 @@ async def claude_status(meldung: ClaudeMeldung, request: Request):
     return {"ok": True}
 
 
-async def befehl_bearbeiten(befehl):
+MUSIK_TEXT = {"playpause": "Wiedergabe umgeschaltet", "weiter": "Nächster Titel", "zurueck": "Vorheriger Titel"}
+
+
+async def befehl_bearbeiten(befehl, benutzer, ip):
     if TEST and befehl == "fehlertest":  # prueft im Test, dass Fehler auf dem iPhone ankommen
         raise RuntimeError("Testfehler")
     if befehl.startswith("shortcut:"):
-        await shortcut_anfragen(befehl)
+        await shortcut_anfragen(befehl, benutzer, ip)
     elif befehl.startswith("bestaetigt:"):
-        await shortcut_bestaetigt(befehl)
+        await shortcut_bestaetigt(befehl, benutzer, ip)
     elif befehl.startswith("gezeigt:"):  # die Seite meldet: Rueckfrage ist zu sehen
         log("Rueckfrage angezeigt auf einer Seite:", befehl)
     elif befehl == "abbruch":
-        zustand["rueckfrage"] = None
-        await an_alle_senden()
-    else:
+        frage = zustand["rueckfrage"]
+        if frage and (frage.get("von") == benutzer["id"] or rechte(benutzer)["admin"]):
+            zustand["rueckfrage"] = None
+            await an_alle_senden()
+    else:  # alles andere ist Musiksteuerung
+        if not rechte(benutzer)["musik"]:
+            raise Verboten("Musiksteuerung", "Die Musiksteuerung ist für dein Konto abgeschaltet.")
+        if befehl in MUSIK_TEXT:
+            konten.protokoll("musik", MUSIK_TEXT[befehl], benutzer, ip)
         try:
             await asyncio.wait_for(medien.befehl(befehl), timeout=5)
         except Exception as fehler:
@@ -360,6 +396,7 @@ async def verbindung(websocket: WebSocket):
         return
     await websocket.accept()
     ws_token[websocket] = token
+    ws_ip[websocket] = websocket.client.host if websocket.client else ""
     shortcuts_neu_laden()
     seite = websocket.query_params.get("seite", "")[:20]
     if seite != SEITE_ERWARTET:
@@ -368,14 +405,22 @@ async def verbindung(websocket: WebSocket):
             " Rueckfragen (Herunterfahren) erscheinen dort evtl. nicht. index.html ersetzen und Seite neu laden.")
     clients.add(websocket)
     seiten[websocket] = seite
-    await websocket.send_text(nachricht_bauen())
+    await websocket.send_text(nachricht_bauen(konten.sitzung_pruefen(token)))
     try:
         while True:
             befehl = await websocket.receive_text()
             if not befehl.startswith(("laut:", "suche:")):  # nicht bei jedem Reglerschritt
                 log("Befehl:", befehl)
+            benutzer = konten.sitzung_pruefen(ws_token.get(websocket))  # Rechte bei jedem Befehl frisch pruefen
+            if benutzer is None:
+                await websocket.close(code=1008)
+                break
             try:
-                await befehl_bearbeiten(befehl)
+                await befehl_bearbeiten(befehl, benutzer, ws_ip.get(websocket, ""))
+            except Verboten as v:
+                log(f"VERWEIGERT: {benutzer['name']} wollte {v.was} ({befehl})")
+                konten.protokoll("verweigert", f"{v.was} ({befehl.split(':')[0]})", benutzer, ws_ip.get(websocket, ""))
+                await websocket.send_text(json.dumps({"fehler": v.text}))
             except Exception as fehler:
                 # Fehler nie verschlucken: ins Protokoll und als rote Meldung aufs iPhone
                 log("FEHLER bei", befehl, "\n" + traceback.format_exc())
@@ -386,6 +431,7 @@ async def verbindung(websocket: WebSocket):
         clients.discard(websocket)
         seiten.pop(websocket, None)
         ws_token.pop(websocket, None)
+        ws_ip.pop(websocket, None)
 
 
 class OhneSignale(uvicorn.Server):

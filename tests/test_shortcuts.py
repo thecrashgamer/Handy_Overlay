@@ -62,6 +62,37 @@ class ShortcutTests(unittest.TestCase):
                 shortcuts.tasten_parsen(e["tasten"])
 
 
+class RechteTests(unittest.TestCase):
+    ADMIN = {"musik": True, "shortcuts": True, "admin": True}
+    NUTZER = {"musik": True, "shortcuts": True, "admin": False}
+    GAST = {"musik": True, "shortcuts": False, "admin": False}
+
+    def test_herunterfahren_nur_admin(self):
+        for aktion in ("herunterfahren", "herunterfahren_stoppen"):
+            e = {"name": "X", "aktion": aktion}
+            self.assertTrue(shortcuts.braucht_admin(e))
+            self.assertTrue(shortcuts.darf_ausloesen(e, self.ADMIN))
+            self.assertFalse(shortcuts.darf_ausloesen(e, self.NUTZER))
+            self.assertFalse(shortcuts.darf_ausloesen(e, self.GAST))
+
+    def test_normale_kachel(self):
+        e = {"name": "Rechner", "programm": "calc.exe"}
+        self.assertTrue(shortcuts.darf_ausloesen(e, self.ADMIN))
+        self.assertTrue(shortcuts.darf_ausloesen(e, self.NUTZER))
+        self.assertFalse(shortcuts.darf_ausloesen(e, self.GAST))
+
+    def test_nur_admin_flag(self):
+        e = shortcuts.pruefen({"name": "Gefaehrlich", "programm": "cmd.exe", "nur_admin": True})
+        self.assertTrue(e["nur_admin"])
+        self.assertFalse(shortcuts.darf_ausloesen(e, self.NUTZER))
+        self.assertTrue(shortcuts.darf_ausloesen(e, self.ADMIN))
+        self.assertNotIn("nur_admin", shortcuts.pruefen({"name": "A", "programm": "a", "nur_admin": False}))
+        self.assertNotIn("nur_admin", shortcuts.pruefen({"name": "B", "programm": "a", "nur_admin": "ja"}))  # nur echtes True
+
+    def test_ohne_rechte_nichts(self):
+        self.assertFalse(shortcuts.darf_ausloesen({"name": "A", "programm": "a"}, {}))
+
+
 class PruefenTests(unittest.TestCase):
     def test_gueltige_eintraege(self):
         self.assertEqual(shortcuts.pruefen({"name": " Rechner ", "icon": "🧮", "programm": "calc.exe"}),

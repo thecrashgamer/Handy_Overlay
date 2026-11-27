@@ -30,6 +30,16 @@ SITZUNG_LANG = 90 * 24 * 3600  # mit "Angemeldet bleiben"
 REGISTRIERUNG = ("freigabe", "offen", "geschlossen")
 
 
+def rechte(benutzer):
+    """Was darf dieser Benutzer? Administratoren dürfen alles."""
+    if not benutzer:
+        return {"musik": False, "shortcuts": False, "admin": False}
+    admin = benutzer.get("rolle") == "admin"
+    return {"musik": admin or bool(benutzer.get("darf_musik")),
+            "shortcuts": admin or bool(benutzer.get("darf_shortcuts")),
+            "admin": admin}
+
+
 class KontoFehler(Exception):
     """Fehler mit Text fuer den Benutzer und passendem HTTP-Status."""
 
@@ -177,15 +187,34 @@ class Konten:
                     schluessel TEXT PRIMARY KEY,
                     wert TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS aktivitaet (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    zeit INTEGER NOT NULL,
+                    benutzer_id INTEGER,
+                    benutzer TEXT NOT NULL DEFAULT '',
+                    art TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    ip TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS aktivitaet_zeit ON aktivitaet(zeit);
                 """
             )
+            # Alte Datenbanken bekommen die Rechte-Spalten nachtraeglich, ohne dass etwas verloren geht
+            spalten = {r["name"] for r in self.db.execute("PRAGMA table_info(benutzer)")}
+            if "darf_musik" not in spalten:
+                self.db.execute("ALTER TABLE benutzer ADD COLUMN darf_musik INTEGER NOT NULL DEFAULT 1")
+            if "darf_shortcuts" not in spalten:
+                self.db.execute("ALTER TABLE benutzer ADD COLUMN darf_shortcuts INTEGER NOT NULL DEFAULT 0")
             self.db.commit()
 
     # --- Hilfen
     def _benutzer(self, zeile):
         if zeile is None:
             return None
-        return {k: zeile[k] for k in ("id", "name", "rolle", "status", "erstellt", "letzte_anmeldung")}
+        b = {k: zeile[k] for k in ("id", "name", "rolle", "status", "erstellt", "letzte_anmeldung")}
+        b["darf_musik"] = bool(zeile["darf_musik"])
+        b["darf_shortcuts"] = bool(zeile["darf_shortcuts"])
+        return b
 
     def anzahl_benutzer(self):
         with self.lock:
@@ -284,7 +313,8 @@ class Konten:
         th = _hash(token)
         with self.lock:
             s = self.db.execute(
-                "SELECT s.*, b.name, b.rolle, b.status, b.erstellt AS b_erstellt, b.letzte_anmeldung "
+                "SELECT s.*, b.name, b.rolle, b.status, b.erstellt AS b_erstellt, b.letzte_anmeldung, "
+                "b.darf_musik, b.darf_shortcuts "
                 "FROM sitzungen s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash=?", (th,)
             ).fetchone()
             if s is None:
@@ -299,7 +329,8 @@ class Konten:
                                 (jetzt, jetzt + dauer, th))
                 self.db.commit()
         return {"id": s["benutzer_id"], "name": s["name"], "rolle": s["rolle"], "status": s["status"],
-                "erstellt": s["b_erstellt"], "letzte_anmeldung": s["letzte_anmeldung"]}
+                "erstellt": s["b_erstellt"], "letzte_anmeldung": s["letzte_anmeldung"],
+                "darf_musik": bool(s["darf_musik"]), "darf_shortcuts": bool(s["darf_shortcuts"])}
 
     def abmelden(self, token):
         if token:
@@ -312,6 +343,7 @@ class Konten:
         with self.lock:
             self.db.execute("DELETE FROM sitzungen WHERE laeuft_ab <= ?", (jetzt,))
             self.db.commit()
+        self.aktivitaet_aufraeumen()
 
     def _sitzungen_loeschen(self, benutzer_id, ausser=None):
         if ausser:
@@ -427,6 +459,56 @@ class Konten:
             if rolle == "benutzer" and z["rolle"] == "admin" and z["status"] == "aktiv" and self._aktive_admins() <= 1:
                 raise KontoFehler("Es muss mindestens ein Administrator bleiben.", 400)
             self.db.execute("UPDATE benutzer SET rolle=? WHERE id=?", (rolle, benutzer_id))
+            self.db.commit()
+
+    def recht_setzen(self, benutzer_id, recht, wert):
+        spalte = {"musik": "darf_musik", "shortcuts": "darf_shortcuts"}.get(recht)
+        if spalte is None:
+            raise KontoFehler("Unbekanntes Recht.")
+        with self.lock:
+            z = self.db.execute("SELECT rolle FROM benutzer WHERE id=?", (benutzer_id,)).fetchone()
+            if z is None:
+                raise KontoFehler("Dieses Konto gibt es nicht.", 404)
+            self.db.execute(f"UPDATE benutzer SET {spalte}=? WHERE id=?", (1 if wert else 0, benutzer_id))
+            self.db.commit()
+
+    # --- Aktivitaetsprotokoll
+    def protokoll(self, art, text, benutzer=None, ip="", jetzt=None):
+        """Haelt fest, wer wann was getan hat. Fehler hier duerfen nie die eigentliche Aktion stoeren."""
+        jetzt = int(time.time() if jetzt is None else jetzt)
+        try:
+            with self.lock:
+                self.db.execute(
+                    "INSERT INTO aktivitaet(zeit, benutzer_id, benutzer, art, text, ip) VALUES(?,?,?,?,?,?)",
+                    (jetzt, benutzer["id"] if benutzer else None, benutzer["name"] if benutzer else "",
+                     str(art)[:30], str(text)[:300], str(ip)[:60]),
+                )
+                self.db.commit()
+        except Exception:
+            pass
+
+    def aktivitaet_liste(self, limit=200, art=None, benutzer=None):
+        limit = max(1, min(int(limit), 2000))
+        sql, args = "SELECT * FROM aktivitaet", []
+        bedingungen = []
+        if art:  # eine Art oder mehrere, durch Komma getrennt
+            arten = [a.strip() for a in str(art).split(",") if a.strip()][:10]
+            bedingungen.append("art IN (" + ",".join("?" * len(arten)) + ")")
+            args.extend(arten)
+        if benutzer:
+            bedingungen.append("lower(benutzer)=?")
+            args.append(str(benutzer).lower())
+        if bedingungen:
+            sql += " WHERE " + " AND ".join(bedingungen)
+        sql += " ORDER BY id DESC LIMIT ?"
+        args.append(limit)
+        with self.lock:
+            zeilen = self.db.execute(sql, args).fetchall()
+        return [{k: z[k] for k in ("id", "zeit", "benutzer", "art", "text", "ip")} for z in zeilen]
+
+    def aktivitaet_aufraeumen(self, behalten=5000):
+        with self.lock:
+            self.db.execute("DELETE FROM aktivitaet WHERE id <= (SELECT COALESCE(MAX(id), 0) - ? FROM aktivitaet)", (behalten,))
             self.db.commit()
 
     def loeschen(self, benutzer_id, durch_id=None):
