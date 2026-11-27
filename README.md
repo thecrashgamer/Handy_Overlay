@@ -100,16 +100,17 @@ Deine Liste liegt in `daten/shortcuts.json` und bleibt bei Updates erhalten. Die
 
 ## Claude-Status
 
-Die Taste unten rechts wechselt durch drei Ansichten: Musik, Extras und Claude. Die Claude-Ansicht zeigt Projekt, Status, eine Stoppuhr, woran Claude gerade arbeitet („Bearbeitet server.py“, „Sucht im Web“ …) und die letzten Schritte. Oben auf allen anderen Ansichten erscheint dazu ein farbiges Banner.
+Die Taste unten rechts wechselt durch drei Ansichten: Musik, Extras und Claude. Die Claude-Ansicht zeigt Projekt, Status, eine Stoppuhr, woran Claude gerade arbeitet („Bearbeitet server.py“, „Sucht im Web“ …) und die letzten Schritte. Oben auf den anderen Ansichten erscheint ein farbiges Banner.
 
-Die Meldungen kommen von Claude-Code-Hooks. Sie laufen dort, wo Claude Code läuft, also auf deinem PC (Desktop-App oder Terminal), nicht in einer Cloud-Sitzung. Einrichten:
+**Einrichten (am PC):** `/admin` → Kasten „Claude-Status“ → Passwort eingeben → „Hooks einrichten“. Das trägt Hooks vom Typ `http` in die `settings.json` von Claude Code ein (`%USERPROFILE%\.claude\settings.json`). Sie schicken die Ereignisse direkt an die Phonebox, ganz ohne Python, PATH oder Shell. Deine übrigen Einstellungen und Hooks bleiben unberührt, vorher entsteht eine Sicherung, und eine fehlerhafte Datei wird nicht angefasst. „Hooks entfernen“ nimmt nur die Einträge der Phonebox wieder heraus. Die Python-Variante unter „Weitere Möglichkeiten“ ist nur für den Fall, dass dein Claude Code keine `http`-Hooks kennt.
 
-1. `hooks/settings-beispiel.json` in `~/.claude/settings.json` übernehmen (unter Windows `C:\Users\<Name>\.claude\settings.json`) und den Pfad zu `claude_status.py` anpassen.
-2. Claude Code neu starten.
+**Wichtig:** Hooks laufen nur in **lokalen** Sitzungen auf dem PC (Claude-App im Bereich „Code“ mit lokalem Ordner, oder das Terminal), **nicht in Cloud-Sitzungen**. Außerdem hält Claude Code Hooks zurück, bis du den Ordner als vertrauenswürdig bestätigt hast. Mit `/hooks` in Claude Code siehst du, ob die Einträge geladen sind.
 
-Gesendet werden nur Dateinamen, Beschreibungen und der Name des Programms eines Befehls, nie Dateiinhalte oder ganze Befehle. Läuft Claude Code auf einem anderen Rechner, `PHONEBOX_URL=http://<PC-IP>:8000/claude` setzen. Meldet Claude zehn Minuten lang nichts, gilt der Status als beendet.
+**Fehlersuche:** Der Kasten zeigt, ob die Hooks eingetragen sind, wann zuletzt etwas ankam und wie viele Ereignisse je Art (UserPromptSubmit, PreToolUse, PermissionRequest, Notification, Stop). Steht dort „noch nichts angekommen“, gehst du die Liste im Kasten durch. Mit den Testknöpfen („Arbeitet“, „Braucht dich“, „Fertig“) prüfst du die Anzeige ohne Claude. Das Python-Skript schreibt jeden Aufruf in `daten/claude-hook.log`, und `python hooks/claude_status.py --test` schickt eine Testmeldung.
 
-Achtung: `/claude` ist im ganzen WLAN ohne Passwort erreichbar. Für ein Heimnetz in Ordnung.
+**Datenschutz:** Der Server wertet nur Dateinamen, Beschreibungen und das Programm eines Befehls aus. Dateiinhalte, ganze Befehle und Eingaben werden weder gespeichert noch angezeigt. Ereignisse nimmt der Server nur vom PC selbst an (oder mit Anmeldung), nicht aus dem WLAN.
+
+**Ton und Blitz:** Wird Claude fertig oder braucht dich (Erlaubnis-Abfrage, Rückfrage), gibt es einen kurzen Ton und einen farbigen Blitz (grün: fertig, blau: braucht dich). Stellbar unter Konto → „Anzeige auf diesem Gerät“ (Ton und Blitz, nur Blitz, nichts). Auf dem iPhone kommt der Ton erst, nachdem du die Seite einmal angetippt hast, und Vibration gibt es dort nicht. Auf Android vibriert das Gerät zusätzlich.
 
 ## Testen ohne Windows
 
@@ -124,6 +125,7 @@ node tests/rechte.test.js             # Rechte und Aktivitätsprotokoll
 node tests/standby.test.js            # Standby-Modus
 node tests/icons.test.js              # Bilder als Symbole
 node tests/geraete.test.js            # GPU und Akkus
+node tests/claude.test.js             # Claude-Status, Hooks, Ton
 node tests/adminupdate.test.js        # Update per Knopf (mit echtem Neustart, dauert etwas)
 # test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
@@ -147,5 +149,6 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `benutzer.py` | Konten am PC verwalten |
 | `start.bat` | Einrichtung und Autostart |
 | `update.bat`, `update.py` | Aktualisieren auf die neueste Version |
-| `hooks/` | Claude-Code-Hooks |
+| `hooks/` | Python-Variante des Claude-Hooks |
+| `claude_ereignisse.py`, `claude_einrichten.py` | Auswertung der Claude-Ereignisse, Eintragen in die settings.json |
 | `tests/` | UI-Test und Shortcut-Tests |

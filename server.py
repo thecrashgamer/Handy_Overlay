@@ -12,11 +12,13 @@ import psutil
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketDisconnected
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
-from pydantic import BaseModel
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
+from pydantic import BaseModel, Field
 
 import admin
 import auth
+import claude_einrichten
+import claude_ereignisse
 import geraete
 import medien as medien_modul
 import protokoll
@@ -28,7 +30,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v21 (Geraete-Akkus)"
+VERSION = "v22 (Claude-Diagnose)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -350,22 +352,35 @@ async def cover(request: Request, id: str = ""):
 
 
 class ClaudeMeldung(BaseModel):
-    status: str  # "arbeitet", "fertig" oder "wartet"
-    text: str = ""  # Ueberschrift fuer das Banner (z. B. die Frage bei "wartet")
-    aktion: str = ""  # woran Claude gerade arbeitet
-    projekt: str = ""
+    status: str = Field(pattern="^(arbeitet|fertig|wartet|)$", max_length=10)  # "" = ruht
+    text: str = Field("", max_length=300)  # Ueberschrift fuer das Banner (z. B. die Frage bei "wartet")
+    aktion: str = Field("", max_length=300)  # woran Claude gerade arbeitet
+    projekt: str = Field("", max_length=200)
     neu: bool = False  # neue Aufgabe: Verlauf leeren
+    ereignis: str = Field("", max_length=40)  # welches Hook-Ereignis die Meldung ausgeloest hat (fuer die Diagnose)
 
 
-@app.post("/claude")
-async def claude_status(meldung: ClaudeMeldung, request: Request):
-    """Wird von den Claude-Code-Hooks aufgerufen (siehe hooks/). Nur vom PC selbst oder mit Anmeldung."""
-    if not (auth.lokal(request) or auth.benutzer_aus(request.cookies)):
-        return PlainTextResponse("Nicht erlaubt.", status_code=403)
+# Was bisher von Claude angekommen ist: hilft herauszufinden, ob die Hooks laufen
+claude_diag = {"letzte": 0, "anzahl": 0, "ereignisse": {}, "quelle": ""}
+
+
+def diag_zaehlen(ereignis, quelle):
+    """Merkt sich, dass etwas von Claude angekommen ist (auch bei Ereignissen, die die Anzeige nicht aendern)."""
+    claude_diag["letzte"] = jetzt_ms()
+    claude_diag["anzahl"] += 1
+    claude_diag["quelle"] = quelle
+    name = ereignis or "(ohne Angabe)"
+    claude_diag["ereignisse"][name] = claude_diag["ereignisse"].get(name, 0) + 1
+    if claude_diag["anzahl"] == 1:
+        log(f"Erste Meldung von Claude seit dem Start: {name} von {quelle}")
+
+
+async def claude_verarbeiten(meldung, quelle):
     global claude_zuletzt
     c = zustand["claude"]
     jetzt = jetzt_ms()
     claude_zuletzt = jetzt
+    diag_zaehlen(meldung.ereignis, quelle)
     if meldung.status != c["status"]:
         if c["status"] == "arbeitet" and meldung.status == "fertig":
             c["dauer"] = (jetzt - c["seit"]) // 1000  # so lange hat Claude gearbeitet
@@ -385,6 +400,120 @@ async def claude_status(meldung: ClaudeMeldung, request: Request):
     elif meldung.status != "arbeitet":
         c["aktion"] = ""
     await an_alle_senden()
+
+
+@app.post("/claude")
+async def claude_status(meldung: ClaudeMeldung, request: Request):
+    """Wird von den Claude-Code-Hooks aufgerufen (siehe hooks/). Nur vom PC selbst oder mit Anmeldung."""
+    if not (auth.lokal(request) or auth.benutzer_aus(request.cookies)):
+        return PlainTextResponse("Nicht erlaubt.", status_code=403)
+    await claude_verarbeiten(meldung, auth.adresse(request))
+    return {"ok": True}
+
+
+HOOK_MAX_BYTES = 5_000_000  # Ereignisse koennen grosse Werkzeug-Eingaben enthalten, aber nicht unbegrenzt
+
+
+@app.post("/claude-hook")
+async def claude_hook(request: Request):
+    """Hier schickt Claude Code seine Hook-Ereignisse hin (Hook-Typ "http"). Antwortet immer mit {}: keine Entscheidung,
+    Claude Code macht normal weiter. Nur vom PC selbst oder mit Anmeldung."""
+    if not (auth.lokal(request) or auth.benutzer_aus(request.cookies)):
+        return PlainTextResponse("Nicht erlaubt.", status_code=403)
+    if int(request.headers.get("content-length") or 0) > HOOK_MAX_BYTES:
+        return JSONResponse({}, status_code=413)
+    koerper = bytearray()
+    async for teil in request.stream():
+        koerper += teil
+        if len(koerper) > HOOK_MAX_BYTES:
+            return JSONResponse({}, status_code=413)
+    try:
+        daten = json.loads(bytes(koerper) or b"{}")
+    except ValueError:
+        return JSONResponse({"fehler": "kein JSON"}, status_code=400)
+    ereignis = str(daten.get("hook_event_name", ""))[:40] if isinstance(daten, dict) else ""
+    meldung = claude_ereignisse.meldung_aus_ereignis(daten)
+    quelle = auth.adresse(request)
+    if meldung is None:
+        diag_zaehlen(ereignis, quelle)  # angekommen, aendert die Anzeige aber nicht
+    else:
+        meldung["projekt"] = meldung.get("projekt", "")[:200]
+        await claude_verarbeiten(ClaudeMeldung(**meldung, ereignis=ereignis), quelle)
+    return JSONResponse({})
+
+
+HOOK_SKRIPT = ORDNER / "hooks" / "claude_status.py"
+
+
+class EinrichtenEin(BaseModel):
+    passwort: str = Field(max_length=400)
+    modus: str = Field("http", pattern="^(http|python)$", max_length=10)
+
+
+class PasswortNur(BaseModel):
+    passwort: str = Field(max_length=400)
+
+
+@app.post("/api/claude/einrichten")
+async def claude_einrichten_route(ein: EinrichtenEin, request: Request):
+    """Traegt die Hooks in die settings.json von Claude Code ein (nur Administratoren, mit Passwort)."""
+    b, fehler = auth.brauche_admin(request)
+    if fehler:
+        return fehler
+    falsch = admin._passwort_pruefen(b, request, ein.passwort)
+    if falsch:
+        return falsch
+    if ein.modus == "python" and not HOOK_SKRIPT.exists():
+        return auth.fehler_antwort("hooks/claude_status.py fehlt im Ordner der Phonebox.", 500)
+    try:
+        erg = claude_einrichten.einrichten(ein.modus, PORT, skript=HOOK_SKRIPT)
+    except (claude_einrichten.EinrichtungsFehler, OSError) as f:
+        return auth.fehler_antwort(str(f), 400)
+    log(f"Admin {b['name']}: Claude-Hooks eingerichtet ({ein.modus}) in {erg['pfad']}")
+    konten.protokoll("admin", f"Claude-Hooks eingerichtet ({ein.modus})", b, auth.adresse(request))
+    return {"ok": True, **erg}
+
+
+@app.post("/api/claude/entfernen")
+async def claude_entfernen_route(ein: PasswortNur, request: Request):
+    b, fehler = auth.brauche_admin(request)
+    if fehler:
+        return fehler
+    falsch = admin._passwort_pruefen(b, request, ein.passwort)
+    if falsch:
+        return falsch
+    try:
+        erg = claude_einrichten.entfernen()
+    except (claude_einrichten.EinrichtungsFehler, OSError) as f:
+        return auth.fehler_antwort(str(f), 400)
+    log(f"Admin {b['name']}: Claude-Hooks entfernt ({erg['entfernt']})")
+    konten.protokoll("admin", f"Claude-Hooks entfernt ({erg['entfernt']} Eintraege)", b, auth.adresse(request))
+    return {"ok": True, **erg}
+
+
+@app.get("/api/claude/diagnose")
+async def claude_diagnose(request: Request):
+    """Fuer den Admin-Bereich: Kommt etwas von Claude an? (Die Hook-Einrichtung ergaenzt admin.py.)"""
+    b, fehler = auth.brauche_admin(request)
+    if fehler:
+        return fehler
+    return {**claude_diag, "jetzt": jetzt_ms(), "status": zustand["claude"]["status"], "port": PORT,
+            "einrichtung": claude_einrichten.pruefen(PORT)}
+
+
+class ClaudeTest(BaseModel):
+    status: str = Field(pattern="^(arbeitet|fertig|wartet)$", max_length=10)
+
+
+@app.post("/api/claude/test")
+async def claude_test(ein: ClaudeTest, request: Request):
+    """Zeigt eine Testmeldung auf allen Geraeten, damit man die Anzeige (und den Ton) pruefen kann."""
+    b, fehler = auth.brauche_admin(request)
+    if fehler:
+        return fehler
+    texte = {"arbeitet": "Testmeldung: Claude arbeitet", "wartet": "Testmeldung: Claude braucht dich", "fertig": ""}
+    await claude_verarbeiten(ClaudeMeldung(status=ein.status, text=texte[ein.status], aktion="Testmeldung", projekt="Test",
+                                           neu=ein.status == "arbeitet", ereignis="Test"), "Admin-Test")
     return {"ok": True}
 
 
@@ -514,6 +643,10 @@ async def laufen():
         if getattr(signal, name, None):
             signal.signal(getattr(signal, name), beenden)
 
+    try:  # das Hook-Skript liest hier den Port, falls er nicht der Standard ist
+        (DATEN / "server.json").write_text(json.dumps({"port": PORT, "version": VERSION}), encoding="utf-8")
+    except OSError:
+        pass
     admin.status_protokollieren(konten)  # Ergebnis eines Updates, das diesen Neustart ausgeloest hat
     aufgabe = asyncio.create_task(schleife())
     geraete_aufgabe = asyncio.create_task(geraete_schleife())

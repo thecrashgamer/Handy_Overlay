@@ -91,6 +91,33 @@
     </select>
   </div>
   <div id="neuzone">Bild hierher ziehen, um daraus einen neuen Shortcut anzulegen</div>
+  <div class="karte system" id="claude-karte">
+    <h2 style="margin-top:0">Claude-Status</h2>
+    <div id="cl-lage" class="upd-ergebnis" style="margin-top:0">Prüfe ...</div>
+    <div id="cl-meldungen" class="hinweis" style="margin-top:8px"></div>
+    <div id="cl-hinweise" class="upd-ergebnis"></div>
+    <div class="zeile2">
+      <input type="password" id="cl-pw" placeholder="Zum Einrichten: dein Passwort" autocomplete="current-password">
+      <button class="knopf" onclick="claudeEinrichten('http')">Hooks einrichten</button>
+    </div>
+    <div class="zeile2">
+      <span class="hinweis">Testmeldung:</span>
+      <button class="knopf zweit" onclick="claudeTest('arbeitet')">Arbeitet</button>
+      <button class="knopf zweit" onclick="claudeTest('wartet')">Braucht dich</button>
+      <button class="knopf zweit" onclick="claudeTest('fertig')">Fertig</button>
+    </div>
+    <details class="ausklapp">
+      <summary>Weitere Möglichkeiten</summary>
+      <div class="zeile2">
+        <button class="knopf zweit" onclick="claudeEinrichten('python')">Python-Variante einrichten</button>
+        <button class="knopf zweit" onclick="claudeEntfernen()">Hooks entfernen</button>
+      </div>
+      <div class="hinweis" style="margin-top:6px">Die Python-Variante brauchst du nur, wenn dein Claude Code keine http-Hooks kennt. „Entfernen“ löscht nur die Einträge der Phonebox aus der Datei, alles andere bleibt.</div>
+    </details>
+    <div class="hinweis" style="margin-top:12px">So geht es: Hooks einrichten, dann in der Claude-App eine <b>lokale</b> Sitzung auf diesem PC starten (nicht Cloud: dort laufen Hooks nicht auf deinem PC) und den Ordner als vertrauenswürdig bestätigen. Mit <code>/hooks</code> siehst du dort die Einträge. Danach eine Aufgabe eingeben.</div>
+    <div class="meldung" id="cl-fehler" role="alert"></div>
+  </div>
+
   <div class="karte system" id="system">
     <h2 style="margin-top:0">System und Update</h2>
     <div>Installiert: <b id="upd-installiert">...</b></div>
@@ -538,6 +565,77 @@
     }).catch(function (f) { meldung(f.message, "fehler"); });
   }
 
+  // ---- Claude-Status: sind die Hooks eingerichtet, und kommt etwas an?
+  function clMeldung(text, art) {
+    var m = el("cl-fehler");
+    m.textContent = text || "";
+    m.className = "meldung" + (text ? " " + art : "");
+  }
+
+  function vor(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    return s < 60 ? "vor " + s + " s" : s < 3600 ? "vor " + Math.round(s / 60) + " Min" : "vor " + Math.round(s / 3600) + " Std";
+  }
+
+  function claudeDiagnose() {
+    return anfrage("GET", "/api/claude/diagnose").then(function (d) {
+      var e = d.einrichtung || {}, lage = el("cl-lage"), hinweise = [];
+      lage.textContent = "";
+      var farbe, text;
+      if (!e.gueltig) { farbe = "#ff8a8f"; text = "Die Datei settings.json ist fehlerhaft: " + e.fehler; }
+      else if (!e.ereignisse.length) { farbe = "#f5a623"; text = "Noch nicht eingerichtet. Klicke auf „Hooks einrichten“."; }
+      else if (e.fehlend.length) { farbe = "#f5a623"; text = "Nur teilweise eingerichtet (es fehlt: " + e.fehlend.join(", ") + "). Klicke auf „Hooks einrichten“."; }
+      else { farbe = "#7ee2a0"; text = "Hooks sind eingetragen (" + (e.modus === "http" ? "http, ohne Python" : e.modus) + ")."; }
+      lage.appendChild(h("div", { style: "color:" + farbe + ";font-weight:bold", text: text }));
+      lage.appendChild(h("div", { class: "hinweis", text: "Datei: " + e.pfad }));
+      (e.hinweise || []).forEach(function (t) { hinweise.push(t); });
+
+      var m = el("cl-meldungen");
+      if (!d.anzahl) {
+        m.textContent = "Von Claude ist seit dem Start des Servers noch nichts angekommen.";
+        if (e.ereignisse.length && !e.fehlend.length) {
+          hinweise.push("Die Hooks sind eingetragen, aber es kam noch nichts an. Prüfe: (1) In der Claude-App läuft eine lokale Sitzung, keine Cloud-Sitzung. (2) Der Ordner ist als vertrauenswürdig bestätigt. (3) Mit /hooks in Claude Code erscheinen die Phonebox-Einträge. (4) Eine neue Aufgabe wurde eingegeben (nicht nur geöffnet). Hilft das nicht, probiere „Python-Variante einrichten“.");
+        }
+      } else {
+        var teile = Object.keys(d.ereignisse).map(function (k) { return k + " " + d.ereignisse[k]; });
+        m.textContent = "Letzte Meldung " + vor(d.jetzt - d.letzte) + " (" + d.anzahl + " insgesamt: " + teile.join(", ") + ").";
+      }
+      var box = el("cl-hinweise");
+      box.textContent = "";
+      hinweise.forEach(function (t) { box.appendChild(h("div", { style: "color:#f5a623;margin-top:6px", text: t })); });
+    }).catch(function () {});
+  }
+
+  function claudeEinrichten(modus) {
+    var pw = el("cl-pw").value;
+    if (!pw) { clMeldung("Gib dein Passwort ein.", "fehler"); return; }
+    clMeldung("");
+    anfrage("POST", "/api/claude/einrichten", { passwort: pw, modus: modus }).then(function (a) {
+      el("cl-pw").value = "";
+      clMeldung("Eingetragen in " + a.pfad + (a.sicherung ? " (Sicherung der alten Datei: " + a.sicherung + ")" : "") + ". Starte jetzt eine lokale Sitzung in der Claude-App.", "ok");
+      claudeDiagnose();
+    }).catch(function (f) { clMeldung(f.message, "fehler"); });
+  }
+
+  function claudeEntfernen() {
+    var pw = el("cl-pw").value;
+    if (!pw) { clMeldung("Gib dein Passwort ein.", "fehler"); return; }
+    if (!confirm("Die Phonebox-Hooks aus der settings.json von Claude Code entfernen?")) return;
+    anfrage("POST", "/api/claude/entfernen", { passwort: pw }).then(function (a) {
+      el("cl-pw").value = "";
+      clMeldung(a.entfernt + " Einträge entfernt.", "ok");
+      claudeDiagnose();
+    }).catch(function (f) { clMeldung(f.message, "fehler"); });
+  }
+
+  function claudeTest(status) {
+    clMeldung("");
+    anfrage("POST", "/api/claude/test", { status: status }).then(function () {
+      clMeldung("Testmeldung gesendet. Auf dem Handy erscheint sie in der Claude-Ansicht und als Banner.", "ok");
+      claudeDiagnose();
+    }).catch(function (f) { clMeldung(f.message, "fehler"); });
+  }
+
   // ---- Update
   var updateLaeuft = false;
 
@@ -668,6 +766,8 @@
   el("pw").addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !el("speichern").disabled) speichern(); });
   laden();
   updateStartAnsicht();
+  claudeDiagnose();
+  setInterval(claudeDiagnose, 3000);
 </script>
 </body>
 </html>
