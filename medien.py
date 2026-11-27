@@ -4,6 +4,7 @@ WindowsMedien spricht mit der echten Windows-Mediensteuerung (Spotify) und
 der Windows-Lautstaerke. TestMedien liefert Fake-Daten, damit sich Server und
 Oberflaeche auch ohne Windows und Spotify testen lassen (PHONEBOX_TEST=1).
 """
+import asyncio
 import hashlib
 
 
@@ -65,7 +66,9 @@ class WindowsMedien:
         self._cover = None
         self._cover_fuer = None
         self._cover_versuche = 0
+        self._cover_task = None
         self._cover_id = ""
+        self._laut_fehler_gezeigt = False
 
     async def _sitzung(self):
         """Sucht die laufende Spotify-Sitzung in der Windows-Mediensteuerung."""
@@ -94,10 +97,19 @@ class WindowsMedien:
             self._cover_fuer = schluessel
             self._cover = None
             self._cover_versuche = 0
-        # Spotify liefert das Cover manchmal erst kurz nach dem Titel nach
-        if self._cover is None and infos.thumbnail is not None and self._cover_versuche < 5:
+            if self._cover_task is not None:
+                self._cover_task.cancel()
+                self._cover_task = None
+        # Das Cover laedt im Hintergrund, damit ein haengendes Lesen nie die Steuerung blockiert.
+        # Spotify liefert es manchmal erst kurz nach dem Titel nach, daher mehrere Versuche.
+        if (
+            self._cover is None
+            and infos.thumbnail is not None
+            and self._cover_versuche < 5
+            and (self._cover_task is None or self._cover_task.done())
+        ):
             self._cover_versuche += 1
-            self._cover = await self._cover_laden(infos.thumbnail)
+            self._cover_task = asyncio.create_task(self._cover_holen(schluessel, infos.thumbnail))
         self._cover_id = (
             hashlib.md5(repr(schluessel).encode()).hexdigest()[:8] if self._cover else ""
         )
@@ -130,6 +142,15 @@ class WindowsMedien:
         art = "image/png" if daten.startswith(b"\x89PNG") else "image/jpeg"
         return daten, art
 
+    async def _cover_holen(self, schluessel, thumbnail):
+        try:
+            daten = await asyncio.wait_for(self._cover_laden(thumbnail), timeout=5)
+        except asyncio.TimeoutError:
+            print("Cover: Zeitueberschreitung beim Lesen")
+            return
+        if daten and schluessel == self._cover_fuer:
+            self._cover = daten
+
     async def _cover_laden(self, thumbnail):
         """Liest das Albumcover aus der Windows-Mediensteuerung."""
         try:
@@ -159,7 +180,10 @@ class WindowsMedien:
                 return geraet.EndpointVolume
             schnittstelle = geraet.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             return cast(schnittstelle, POINTER(IAudioEndpointVolume))
-        except Exception:
+        except Exception as fehler:
+            if not self._laut_fehler_gezeigt:  # nur einmal melden, nicht jede Sekunde
+                self._laut_fehler_gezeigt = True
+                print("Lautstaerke nicht verfuegbar:", repr(fehler))
             return None
 
     def _laut_lesen(self):

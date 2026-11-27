@@ -68,9 +68,10 @@ async def an_alle_senden():
 async def aktualisieren():
     """Liest den Medienstatus und meldet ihn allen iPhones, wenn er sich geaendert hat."""
     try:
-        neu = await medien.status()
+        neu = await asyncio.wait_for(medien.status(), timeout=5)  # haengt nie ewig
     except Exception as fehler:
-        neu = {"spielt": False, "titel": "Fehler: " + str(fehler), "kuenstler": "", "cover": "", "laut": None}
+        neu = {"spielt": False, "titel": "Fehler: " + (str(fehler) or type(fehler).__name__),
+               "kuenstler": "", "cover": "", "laut": None}
     system = {"cpu": round(psutil.cpu_percent()), "ram": round(psutil.virtual_memory().percent)}
     geaendert = shortcuts_neu_laden()
     if neu != zustand["medien"] or system != zustand["system"] or geaendert:
@@ -101,7 +102,10 @@ async def shortcut_ausloesen(befehl):
 
 async def schleife():
     while True:
-        await aktualisieren()
+        try:
+            await aktualisieren()
+        except Exception as fehler:  # die Schleife darf nie sterben
+            print("Aktualisieren fehlgeschlagen:", repr(fehler))
         await asyncio.sleep(1)
 
 
@@ -154,9 +158,15 @@ async def verbindung(websocket: WebSocket):
             if befehl.startswith("shortcut:"):
                 await shortcut_ausloesen(befehl)
                 continue
-            await medien.befehl(befehl)
+            try:
+                await asyncio.wait_for(medien.befehl(befehl), timeout=5)
+            except Exception as fehler:
+                print("Befehl fehlgeschlagen:", befehl, repr(fehler))
             await asyncio.sleep(0.3)  # Spotify kurz Zeit geben, dann sofort aktualisieren
-            await aktualisieren()
+            try:
+                await aktualisieren()
+            except Exception as fehler:
+                print("Aktualisieren fehlgeschlagen:", repr(fehler))
     except (WebSocketDisconnect, WebSocketDisconnected):
         pass  # iPhone hat die Verbindung geschlossen (z. B. Seite neu geladen)
     finally:
