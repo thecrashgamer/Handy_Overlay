@@ -34,6 +34,22 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.waitForFunction(() => document.getElementById('titel').textContent === 'Testlied Eins');
     ok('Zurueck wechselt den Titel');
 
+    // Zeitleiste: laeuft von selbst weiter und springt auf Wunsch
+    await page.waitForFunction(() => document.getElementById('dauer').textContent === '3:20');
+    const pos1 = Number(await page.inputValue('#zeit'));
+    await wait(2200);
+    const pos2 = Number(await page.inputValue('#zeit'));
+    assert.ok(pos2 > pos1, `Zeitleiste laeuft nicht (${pos1} -> ${pos2})`);
+    ok('Zeitleiste zeigt Laufzeit und laeuft weiter');
+    await page.fill('#zeit', '120');
+    await page.dispatchEvent('#zeit', 'change');
+    await wait(1800);
+    await page.reload();
+    await page.waitForFunction(() => Number(document.getElementById('zeit').value) >= 120);
+    const gesprungen = Number(await page.inputValue('#zeit'));
+    assert.ok(gesprungen >= 120 && gesprungen < 130, 'Sprung nicht uebernommen: ' + gesprungen);
+    ok('Sprung in der Zeitleiste klappt (auf ' + gesprungen + ' s)');
+
     const vorher = await page.innerHTML('#play');
     await page.click('#play');
     await page.waitForFunction((v) => document.getElementById('play').innerHTML !== v, vorher);

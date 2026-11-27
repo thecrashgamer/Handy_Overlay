@@ -23,7 +23,11 @@
            object-fit: cover; display: none; flex: none; }
   #titel { font-size: 24px; font-weight: bold; max-width: 340px; }
   #kuenstler { font-size: 18px; color: #b3b3b3; margin-top: 4px; min-height: 22px; }
-  .tasten { display: flex; gap: 20px; margin-top: 18px; align-items: center; }
+  #zeitreihe { display: none; align-items: center; gap: 10px; margin-top: 12px; width: 300px;
+               font-size: 13px; color: #b3b3b3; }
+  #zeitreihe span { width: 38px; font-variant-numeric: tabular-nums; }
+  #zeit { flex: 1; min-width: 0; accent-color: #1db954; }
+  .tasten { display: flex; gap: 20px; margin-top: 14px; align-items: center; }
   button { width: 68px; height: 68px; border-radius: 50%; border: none;
            background: #282828; color: #fff; font-size: 26px; }
   button:active { background: #1db954; }
@@ -75,6 +79,11 @@
       <div id="status">Verbinde ...</div>
       <div id="titel">-</div>
       <div id="kuenstler"></div>
+      <div id="zeitreihe">
+        <span id="pos">0:00</span>
+        <input id="zeit" type="range" min="0" max="1" step="1" value="0">
+        <span id="dauer">0:00</span>
+      </div>
       <div class="tasten">
         <button id="zurueck" onclick="senden('zurueck')">&#9198;</button>
         <button id="play" onclick="senden('playpause')">&#9654;</button>
@@ -102,6 +111,8 @@
   var ws;
   var letzteEingabe = 0;
   var letztesSenden = 0;
+  var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
+  var suchenBis = 0, zieht = false;
   var scStand = "";
   var letzteShortcutNr = null;
   var hinweisTimer;
@@ -141,6 +152,7 @@
       }
 
       extrasZeigen(d);
+      zeitUebernehmen(d);
 
       var c = d.claude || {};
       var banner = el("claude");
@@ -198,6 +210,32 @@
     letzteShortcutNr = sc.nr;
   }
 
+  function format(sekunden) {
+    sekunden = Math.max(0, Math.floor(sekunden));
+    var s = sekunden % 60;
+    return Math.floor(sekunden / 60) + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function zeitUebernehmen(d) {
+    liedDauer = d.dauer || 0;
+    laeuft = !!d.spielt;
+    el("zeitreihe").style.display = liedDauer > 0 ? "flex" : "none";
+    if (Date.now() < suchenBis) return;  // eigene Eingabe nicht sofort ueberschreiben
+    basisPos = d.position || 0;
+    basisZeit = Date.now();
+  }
+
+  function zeitAnzeigen() {
+    if (liedDauer <= 0 || zieht) return;
+    var pos = basisPos + (laeuft ? (Date.now() - basisZeit) / 1000 : 0);
+    pos = Math.min(pos, liedDauer);
+    var regler = el("zeit");
+    regler.max = Math.floor(liedDauer);
+    regler.value = Math.floor(pos);
+    el("pos").textContent = format(pos);
+    el("dauer").textContent = format(liedDauer);
+  }
+
   function hinweisZeigen(text, fehler) {
     var h = el("hinweis");
     h.textContent = text;
@@ -224,6 +262,19 @@
     if (ws && ws.readyState === 1) ws.send(befehl);
   }
 
+  // Zeitleiste: beim Ziehen nur die Anzeige mitfuehren, beim Loslassen springen
+  el("zeit").addEventListener("input", function () {
+    zieht = true;
+    el("pos").textContent = format(this.value);
+  });
+  el("zeit").addEventListener("change", function () {
+    zieht = false;
+    basisPos = Number(this.value);
+    basisZeit = Date.now();
+    suchenBis = Date.now() + 1500;  // Spotify meldet die neue Position erst etwas spaeter
+    senden("suche:" + this.value);
+  });
+
   el("laut").addEventListener("input", function () {
     letzteEingabe = Date.now();
     if (letzteEingabe - letztesSenden > 100) {  // nicht bei jedem Pixel senden
@@ -239,6 +290,7 @@
   try { if (localStorage.getItem("phonebox-ansicht") === "extras") ansichtWechseln(); } catch (e) {}
   uhrAktualisieren();
   setInterval(uhrAktualisieren, 1000);
+  setInterval(zeitAnzeigen, 250);
   verbinden();
 </script>
 </body>

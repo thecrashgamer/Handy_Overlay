@@ -6,6 +6,8 @@ Oberflaeche auch ohne Windows und Spotify testen lassen (PHONEBOX_TEST=1).
 """
 import asyncio
 import hashlib
+import time
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 from protokoll import log
@@ -26,6 +28,18 @@ class TestMedien:
         self.nr = 0
         self.spielt = True
         self.laut = 50
+        self.dauer = 200.0
+        self._pos_basis = 0.0
+        self._pos_zeit = time.monotonic()
+
+    def _pos(self):
+        if not self.spielt:
+            return self._pos_basis
+        return min(self.dauer, self._pos_basis + time.monotonic() - self._pos_zeit)
+
+    def _pos_setzen(self, sekunden):
+        self._pos_basis = max(0.0, min(self.dauer, sekunden))
+        self._pos_zeit = time.monotonic()
 
     async def status(self):
         titel, kuenstler, _ = self.LIEDER[self.nr]
@@ -35,17 +49,24 @@ class TestMedien:
             "kuenstler": kuenstler,
             "cover": f"t{self.nr}",
             "laut": self.laut,
+            "dauer": self.dauer,
+            "position": round(self._pos(), 1),
         }
 
     async def befehl(self, befehl: str):
         if befehl == "playpause":
+            self._pos_setzen(self._pos())  # Stand festhalten, dann umschalten
             self.spielt = not self.spielt
         elif befehl == "weiter":
             self.nr = (self.nr + 1) % len(self.LIEDER)
+            self._pos_setzen(0)
         elif befehl == "zurueck":
             self.nr = (self.nr - 1) % len(self.LIEDER)
+            self._pos_setzen(0)
         elif befehl.startswith("laut:"):
             self.laut = _prozent(befehl)
+        elif befehl.startswith("suche:"):
+            self._pos_setzen(_sekunden(befehl))
 
     async def cover(self):
         farbe = self.LIEDER[self.nr][2]
@@ -101,6 +122,7 @@ class WindowsMedien:
             }
         infos = await sitzung.try_get_media_properties_async()
         spielt = sitzung.get_playback_info().playback_status == self._Status.PLAYING
+        dauer, position = self._zeitleiste(sitzung, spielt, (infos.title, infos.artist))
 
         schluessel = (infos.title, infos.artist)
         if schluessel != self._cover_fuer:
@@ -131,7 +153,32 @@ class WindowsMedien:
             "kuenstler": infos.artist,
             "cover": self._cover_id,
             "laut": laut,
+            "dauer": dauer,
+            "position": position,
         }
+
+    def _zeitleiste(self, sitzung, spielt, schluessel):
+        """Laenge und aktuelle Position des Lieds in Sekunden (Position wird hochgerechnet)."""
+        try:
+            tl = sitzung.get_timeline_properties()
+            dauer = (tl.end_time - tl.start_time).total_seconds()
+            position = (tl.position - tl.start_time).total_seconds()
+            if spielt:
+                stand = tl.last_updated_time
+                if stand.tzinfo is None:
+                    stand = stand.replace(tzinfo=timezone.utc)
+                position += max(0.0, (datetime.now(timezone.utc) - stand).total_seconds())
+            if schluessel != getattr(self, "_tl_gemeldet", None):
+                self._tl_gemeldet = schluessel
+                log(f"Zeitleiste: Dauer {dauer:.0f} s, Position {position:.0f} s")
+            if dauer <= 0:
+                return 0.0, 0.0
+            return round(dauer, 1), round(max(0.0, min(position, dauer)), 1)
+        except Exception as fehler:
+            if not getattr(self, "_tl_fehler", False):
+                self._tl_fehler = True
+                log("Zeitleiste nicht verfuegbar:", repr(fehler))
+            return 0.0, 0.0
 
     async def befehl(self, befehl: str):
         if befehl.startswith("laut:"):
@@ -142,7 +189,10 @@ class WindowsMedien:
         sitzung = await self._sitzung()
         if sitzung is None:
             return
-        if befehl == "playpause":
+        if befehl.startswith("suche:"):
+            # Windows rechnet in 100-Nanosekunden-Schritten
+            await sitzung.try_change_playback_position_async(int(_sekunden(befehl) * 10_000_000))
+        elif befehl == "playpause":
             await sitzung.try_toggle_play_pause_async()
         elif befehl == "weiter":
             await sitzung.try_skip_next_async()
@@ -218,6 +268,13 @@ class WindowsMedien:
         endpunkt = self._endpunkt()
         if endpunkt is not None:
             endpunkt.SetMasterVolumeLevelScalar(prozent / 100, None)
+
+
+def _sekunden(befehl: str) -> float:
+    try:
+        return max(0.0, float(befehl.split(":", 1)[1]))
+    except ValueError:
+        return 0.0
 
 
 def _prozent(befehl: str) -> int:

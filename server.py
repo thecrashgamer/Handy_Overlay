@@ -19,7 +19,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v6 (COM-Thread)"
+VERSION = "v7 (Zeitleiste)"
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 
 medien = medien_modul.erstellen(TEST)
@@ -75,7 +75,7 @@ async def aktualisieren():
         neu = await asyncio.wait_for(medien.status(), timeout=5)  # haengt nie ewig
     except Exception as fehler:
         neu = {"spielt": False, "titel": "Fehler: " + (str(fehler) or type(fehler).__name__),
-               "kuenstler": "", "cover": "", "laut": None}
+               "kuenstler": "", "cover": "", "laut": None, "dauer": 0, "position": 0}
     system = {"cpu": round(psutil.cpu_percent()), "ram": round(psutil.virtual_memory().percent)}
     geaendert = shortcuts_neu_laden()
     if neu != zustand["medien"] or system != zustand["system"] or geaendert:
