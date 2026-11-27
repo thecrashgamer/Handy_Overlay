@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 import admin
 import auth
+import geraete
 import medien as medien_modul
 import protokoll
 import seitencheck
@@ -27,7 +28,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v20 (Update im Admin)"
+VERSION = "v21 (Geraete-Akkus)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -40,6 +41,7 @@ DATEN = Path(os.environ.get("PHONEBOX_DATEN", ORDNER / "daten"))  # hier liegen 
 konten = Konten(DATEN / "phonebox.db")
 auth.einrichten(konten, ORDNER)
 medien = medien_modul.erstellen(TEST)
+gpu_holen, akkus_holen = geraete.erstellen(TEST, leer=os.environ.get("PHONEBOX_TEST_OHNE_GERAETE") == "1")
 clients = set()
 ws_ip = {}  # WebSocket -> Adresse des Geraets, fuers Aktivitaetsprotokoll
 ws_token = {}  # WebSocket -> Sitzungs-Schluessel, damit gesperrte oder abgemeldete Geraete getrennt werden
@@ -50,7 +52,7 @@ admin.einrichten(SHORTCUT_DATEI, SHORTCUT_VORLAGE, ORDNER)
 zustand = {
     "medien": {},
     "claude": {"status": "", "text": "", "aktion": "", "projekt": "", "seit": 0, "dauer": 0, "verlauf": []},
-    "system": {"cpu": 0, "ram": 0},
+    "system": {"cpu": 0, "ram": 0, "gpu": [], "akkus": []},
     "shortcut": {"nr": 0, "name": "", "ok": True},  # zuletzt ausgeloest, fuer die Rueckmeldung
 }
 claude_zuletzt = 0  # wann zuletzt etwas von Claude kam (ms)
@@ -148,7 +150,8 @@ async def aktualisieren():
     except Exception as fehler:
         neu = {"spielt": False, "titel": "Fehler: " + (str(fehler) or type(fehler).__name__),
                "kuenstler": "", "cover": "", "laut": None, "dauer": 0, "position": 0}
-    system = {"cpu": round(psutil.cpu_percent()), "ram": round(psutil.virtual_memory().percent)}
+    system = {"cpu": round(psutil.cpu_percent()), "ram": round(psutil.virtual_memory().percent),
+              "gpu": zustand["system"]["gpu"], "akkus": zustand["system"]["akkus"]}
     geaendert = shortcuts_neu_laden() | claude_aufraeumen() | rueckfrage_aufraeumen()
     if neu != zustand["medien"] or system != zustand["system"] or geaendert:
         zustand["medien"] = neu
@@ -237,6 +240,33 @@ async def verbindungen_pruefen():
                 await client.close(code=1008)
             except Exception:
                 pass
+
+
+async def geraete_schleife():
+    """Liest GPU und Akkus in eigenen Threads (die Abfragen koennen langsam sein) und bremst sich bei langsamen
+    Abfragen selbst, damit der PC im Dauerbetrieb nicht belastet wird."""
+    naechste_gpu = naechster_akku = 0.0
+    bekannt = None
+    while True:
+        try:
+            jetzt = time.monotonic()
+            if jetzt >= naechste_gpu:
+                start = time.monotonic()
+                zustand["system"]["gpu"] = await asyncio.to_thread(gpu_holen)
+                naechste_gpu = time.monotonic() + max(2.0, (time.monotonic() - start) * 5)
+            if jetzt >= naechster_akku:
+                start = time.monotonic()
+                akkus = await asyncio.to_thread(akkus_holen)
+                zustand["system"]["akkus"] = akkus
+                naechster_akku = time.monotonic() + max(30.0, (time.monotonic() - start) * 10)
+                namen = sorted(a["name"] for a in akkus)
+                if namen != bekannt:  # nur bei Aenderungen ins Protokoll, hilft bei der Fehlersuche
+                    bekannt = namen
+                    log("Akku-Geraete:", ", ".join(f"{a['name']} ({a['prozent'] if a['prozent'] is not None else a.get('stufe')})" for a in akkus) or "keine")
+        except Exception as fehler:
+            log("Geraete lesen fehlgeschlagen:", repr(fehler))
+            naechste_gpu = naechster_akku = time.monotonic() + 30
+        await asyncio.sleep(1)
 
 
 async def schleife():
@@ -486,6 +516,7 @@ async def laufen():
 
     admin.status_protokollieren(konten)  # Ergebnis eines Updates, das diesen Neustart ausgeloest hat
     aufgabe = asyncio.create_task(schleife())
+    geraete_aufgabe = asyncio.create_task(geraete_schleife())
     log(f"Phonebox-Server {VERSION} laeuft" + (" (Testmodus)" if TEST else ""))
     adressen_zeigen(info)
     if konten.anzahl_benutzer() == 0:
@@ -494,6 +525,7 @@ async def laufen():
         await asyncio.gather(*(s.serve() for s in server))
     finally:
         aufgabe.cancel()
+        geraete_aufgabe.cancel()
 
 
 if __name__ == "__main__":

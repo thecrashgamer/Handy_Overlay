@@ -42,6 +42,32 @@
   #system { width: 220px; }
   #uhr { font-size: 56px; font-weight: bold; line-height: 1; }
   #datum { color: #b3b3b3; margin: 6px 0 16px; font-size: 16px; }
+  #system { max-height: 100%; overflow-y: auto; }
+  .messung .unter { font-size: 11px; color: #777; margin-top: 3px; }
+  #akkus { margin-top: 14px; text-align: left; }
+  #akkus .titel { font-size: 13px; color: #b3b3b3; margin-bottom: 4px; }
+  .akku { margin-top: 7px; font-size: 13px; color: #b3b3b3; }
+  .akku .kopf { display: flex; justify-content: space-between; gap: 8px; }
+  .akku .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .akku .wert { flex: none; font-variant-numeric: tabular-nums; }
+  .akku .balken { height: 6px; margin-top: 3px; }
+  .akku .fuell.mittel { background: #f5a623; }
+  .akku .fuell.schwach { background: #e5484d; }
+  .akku.schwach .wert { color: #ff8a8f; font-weight: bold; }
+  /* Niedrige Bildschirme (iPhone quer): kompakter, damit alles ohne Scrollen und ueber den Knoepfen unten Platz hat */
+  @media (max-height: 420px) {
+    #system { padding-bottom: 48px; }
+    #uhr { font-size: 40px; }
+    #datum { margin: 2px 0 8px; font-size: 13px; }
+    .messung { margin-top: 5px; font-size: 12px; }
+    .messung .balken { height: 7px; margin-top: 2px; }
+    .messung .unter { font-size: 10px; margin-top: 1px; }
+    #akkus { margin-top: 8px; }
+    #akkus .titel { font-size: 12px; margin-bottom: 1px; }
+    .akku { margin-top: 4px; font-size: 12px; }
+    .akku .balken { height: 4px; margin-top: 2px; }
+  }
+  #sb-akku { display: none; margin-top: 12px; font-size: 14px; color: #8a4a4a; }
   .messung { text-align: left; margin-top: 10px; font-size: 14px; color: #b3b3b3; }
   .balken { height: 10px; background: #282828; border-radius: 5px; margin-top: 4px; overflow: hidden; }
   .fuell { height: 100%; width: 0; background: #1db954; }
@@ -169,6 +195,8 @@
       <div id="datum"></div>
       <div class="messung"><span id="cputext">CPU</span><div class="balken"><div class="fuell" id="cpu"></div></div></div>
       <div class="messung"><span id="ramtext">RAM</span><div class="balken"><div class="fuell" id="ram"></div></div></div>
+      <div id="gpus"></div>
+      <div id="akkus" hidden><div class="titel">Akkus</div><div id="akkuliste"></div></div>
     </div>
     <div id="sc"></div>
   </div>
@@ -189,6 +217,7 @@
     <div id="sb-uhr">--:--</div>
     <div id="sb-datum"></div>
     <div id="sb-musik"><img id="sb-cover" alt=""><div><div id="sb-titel"></div><div id="sb-kuenstler"></div></div></div>
+    <div id="sb-akku"></div>
     <div id="sb-claude"><span class="punkt"></span><span id="sb-claude-text"></span></div>
     <div id="sb-status"></div>
   </div>
@@ -233,7 +262,7 @@
   }
 
   var ws;
-  var SEITE = "v20";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v21";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -337,6 +366,9 @@
       el("ram").style.width = sys.ram + "%";
       el("ram").className = "fuell" + (sys.ram > 85 ? " hoch" : "");
     }
+
+    gpuAnzeigen(sys.gpu || []);
+    akkusAnzeigen(sys.akkus || []);
 
     var liste = d.shortcuts || [];
     var stand = JSON.stringify(liste);
@@ -504,6 +536,78 @@
     senden(ja ? "bestaetigt:" + nr : "abbruch");
   }
 
+  var gpuStand = "", akkuStand = "";
+  var AKKU_ICON = { kopfhoerer: "\uD83C\uDFA7", maus: "\uD83D\uDDB1\uFE0F", tastatur: "\u2328\uFE0F", controller: "\uD83C\uDFAE",
+                    pc: "\uD83D\uDCBB", geraet: "\uD83D\uDD0B" };
+
+  function gb(mb) { return (mb / 1024).toLocaleString("de-DE", { maximumFractionDigits: 1, minimumFractionDigits: 1 }); }
+
+  function gpuAnzeigen(gpus) {
+    var stand = JSON.stringify(gpus);
+    if (stand === gpuStand) return;
+    gpuStand = stand;
+    var box = el("gpus");
+    box.textContent = "";
+    gpus.slice(0, 2).forEach(function (g) {
+      var m = document.createElement("div");
+      m.className = "messung";
+      var text = document.createElement("span");
+      text.textContent = "GPU " + g.auslastung + " %";
+      var balken = document.createElement("div");
+      balken.className = "balken";
+      var fuell = document.createElement("div");
+      fuell.className = "fuell" + (g.auslastung > 85 ? " hoch" : "");
+      fuell.style.width = g.auslastung + "%";
+      balken.appendChild(fuell);
+      m.appendChild(text);
+      m.appendChild(balken);
+      var teile = [g.name];
+      if (g.vram_benutzt != null) teile.push(g.vram_gesamt ? gb(g.vram_benutzt) + " von " + gb(g.vram_gesamt) + " GB" : gb(g.vram_benutzt) + " GB belegt");
+      if (g.temperatur != null) teile.push(g.temperatur + " \u00B0C");
+      var unter = document.createElement("div");
+      unter.className = "unter";
+      unter.textContent = teile.join(" \u00B7 ");
+      m.appendChild(unter);
+      box.appendChild(m);
+    });
+  }
+
+  function akkusAnzeigen(akkus) {
+    var stand = JSON.stringify(akkus);
+    if (stand === akkuStand) return;
+    akkuStand = stand;
+    el("akkus").hidden = akkus.length === 0;
+    var liste = el("akkuliste");
+    liste.textContent = "";
+    akkus.forEach(function (a) {
+      var zeile = document.createElement("div");
+      var p = a.prozent;
+      var klasse = p == null ? "" : p <= 20 ? "schwach" : p <= 40 ? "mittel" : "";
+      zeile.className = "akku " + (p != null && p <= 20 && !a.laedt ? "schwach" : "");
+      var kopf = document.createElement("div");
+      kopf.className = "kopf";
+      var name = document.createElement("span");
+      name.className = "name";
+      name.textContent = (AKKU_ICON[a.art] || AKKU_ICON.geraet) + " " + a.name;
+      var wert = document.createElement("span");
+      wert.className = "wert";
+      wert.textContent = a.kabel ? "Kabel" : (p != null ? p + " %" : (a.stufe || "?")) + (a.laedt ? " \u26A1" : "");
+      kopf.appendChild(name);
+      kopf.appendChild(wert);
+      zeile.appendChild(kopf);
+      if (!a.kabel && p != null) {
+        var balken = document.createElement("div");
+        balken.className = "balken";
+        var fuell = document.createElement("div");
+        fuell.className = "fuell " + klasse;
+        fuell.style.width = p + "%";
+        balken.appendChild(fuell);
+        zeile.appendChild(balken);
+      }
+      liste.appendChild(zeile);
+    });
+  }
+
   function hinweisZeigen(text, fehler) {
     var h = el("hinweis");
     h.textContent = text;
@@ -624,6 +728,9 @@
     } else {
       box.style.display = "none";
     }
+    var schwach = (((d.system || {}).akkus) || []).filter(function (a) { return a.prozent != null && a.prozent <= 15 && !a.laedt; });
+    el("sb-akku").style.display = schwach.length ? "block" : "none";
+    el("sb-akku").textContent = schwach.map(function (a) { return "\uD83D\uDD0B " + a.name + " " + a.prozent + " %"; }).join("   ");
     el("sb-status").textContent = verbunden ? "" : "Warte auf PC ...";
   }
 
