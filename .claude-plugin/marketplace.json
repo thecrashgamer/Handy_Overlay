@@ -1,0 +1,7 @@
+{
+  "name": "phonebox",
+  "owner": { "name": "Phonebox" },
+  "plugins": [
+    { "name": "phonebox", "source": "./claude-mod/phonebox", "description": "Schickt Anweisungen vom Handy (Phonebox) als Nachricht an Claude" }
+  ]
+}
