@@ -20,6 +20,8 @@ import auth
 import claude_eingabe
 import claude_einrichten
 import claude_ereignisse
+import gemini_einrichten
+import gemini_ereignisse
 import geraete
 import medien as medien_modul
 import protokoll
@@ -103,6 +105,18 @@ def eingabe_an():
     return _eingabe_cache["an"]
 
 
+ANBIETER_NAMEN = {"claude": "Claude", "gemini": "Gemini"}
+_anbieter_cache = {"name": None}
+
+
+def ki_anbieter():
+    """Welche KI die Phonebox anzeigt und bedient: "claude" (Standard) oder "gemini". Stellt ein Administrator im Admin-Bereich ein."""
+    if _anbieter_cache["name"] is None:
+        wert = konten.einstellung("ki_anbieter", "claude")
+        _anbieter_cache["name"] = wert if wert in ANBIETER_NAMEN else "claude"
+    return _anbieter_cache["name"]
+
+
 def jetzt_ms():
     return int(time.time() * 1000)
 
@@ -153,15 +167,16 @@ def nachricht_bauen(benutzer):
         "version": VERSION,
         **zustand["medien"],
         "claude": {**zustand["claude"], "jetzt": jetzt_ms()},
+        "anbieter": ANBIETER_NAMEN[ki_anbieter()],
         "system": zustand["system"],
         "rechte": r,
         "shortcuts": [{"name": e["name"], "icon": e.get("icon", ""), "bild": e.get("bild", ""),
                        "erlaubt": shortcuts.darf_ausloesen(e, r)} for e in shortcut_liste],
         "shortcut": zustand["shortcut"],
-        "claude_eingabe": {"an": eingabe_an(), "darf": r["admin"],
+        "claude_eingabe": {"an": eingabe_an(), "darf": r["admin"], "halten_s": halte_sekunden(ki_anbieter()),
                            "eintraege": eingabe.anzeige() if (r["admin"] and eingabe_an()) else [],
                            "antwort": claude_antwort if (r["admin"] and eingabe_an() and claude_antwort["text"]) else None},
-        "claude_nutzung": nutzung_anzeige() if r["admin"] else None,
+        "claude_nutzung": nutzung_anzeige() if (r["admin"] and ki_anbieter() == "claude") else None,  # Plan-Grenzen meldet nur der Claude-Mod
         "rueckfrage": {**{k: v for k, v in eigene_frage.items() if k != "von"}, "jetzt": jetzt_ms()} if eigene_frage else None,
     })
 
@@ -453,6 +468,17 @@ HOOK_MAX_BYTES = 5_000_000  # Ereignisse koennen grosse Werkzeug-Eingaben enthal
 async def claude_hook(request: Request):
     """Hier schickt Claude Code seine Hook-Ereignisse hin (Hook-Typ "http"). Die Antwort ist {} (keine Entscheidung, Claude Code
     macht normal weiter), ausser es wartet eine Anweisung vom Handy: dann geht sie mit. Nur vom PC selbst oder mit Anmeldung."""
+    return await hook_annehmen(request, "claude")
+
+
+@app.post("/gemini-hook")
+async def gemini_hook(request: Request):
+    """Wie /claude-hook, fuer Gemini CLI. Dort startet ein Hook ein Programm (hooks/gemini_status.py), das das Ereignis hierher
+    schickt und die Antwort an Gemini CLI zurueckgibt."""
+    return await hook_annehmen(request, "gemini")
+
+
+async def hook_annehmen(request, anbieter):
     if not (auth.lokal(request) or auth.benutzer_aus(request.cookies)):
         return PlainTextResponse("Nicht erlaubt.", status_code=403)
     if int(request.headers.get("content-length") or 0) > HOOK_MAX_BYTES:
@@ -466,17 +492,27 @@ async def claude_hook(request: Request):
         daten = json.loads(bytes(koerper) or b"{}")
     except ValueError:
         return JSONResponse({"fehler": "kein JSON"}, status_code=400)
-    ereignis = str(daten.get("hook_event_name", ""))[:40] if isinstance(daten, dict) else ""
-    meldung = claude_ereignisse.meldung_aus_ereignis(daten)
+    ist_dict = isinstance(daten, dict)
+    ereignis = str(daten.get("hook_event_name", ""))[:40] if ist_dict else ""
     quelle = auth.adresse(request)
-    if isinstance(daten, dict) and isinstance(daten.get("session_id"), str) and auth.lokal(request):
+    if anbieter != ki_anbieter():
+        # Die andere KI ist gewaehlt: angekommen (fuer die Diagnose), aber keine Anzeige und keine Anweisung
+        diag_zaehlen(ereignis, quelle)
+        return JSONResponse({})
+    if anbieter == "gemini":
+        meldung = gemini_ereignisse.meldung_aus_ereignis(daten)
+        intern = gemini_ereignisse.intern(daten)  # Gemini-Ereignis unter dem Claude-Namen: so arbeitet der Rest
+    else:
+        meldung = claude_ereignisse.meldung_aus_ereignis(daten)
+        intern = ereignis
+    if ist_dict and isinstance(daten.get("session_id"), str) and auth.lokal(request) and anbieter == "claude":
         letzte_hook["session"], letzte_hook["zeit"] = daten["session_id"][:100], time.time()
-    # Wartende Anweisungen vom Handy gibt es nur an Claude Code auf dem PC selbst, nie an angemeldete Browser aus dem WLAN
+    # Wartende Anweisungen vom Handy gibt es nur an die KI auf dem PC selbst, nie an angemeldete Browser aus dem WLAN
     antwort, uebergeben = ({}, None)
-    mod_da = mod_aktiv()  # Ist der Mod in Claude Code verbunden, holt er die Anweisungen selbst ab (zuverlaessiger)
+    mod_da = anbieter == "claude" and mod_aktiv()  # Ist der Mod in Claude Code verbunden, holt er die Anweisungen selbst ab
     if auth.lokal(request) and not mod_da:
-        antwort, uebergeben = eingabe_uebergabe(ereignis)
-    if uebergeben and ereignis == "Stop":  # Claude arbeitet weiter: nicht "fertig" melden und nicht piepen
+        antwort, uebergeben = eingabe_uebergabe(intern, anbieter)
+    if uebergeben and intern == "Stop":  # die KI arbeitet weiter: nicht "fertig" melden und nicht piepen
         meldung = {"status": "arbeitet", "aktion": "Anweisung vom Handy: " + claude_ereignisse.kurz(uebergeben, 50),
                    "projekt": (meldung or {}).get("projekt", "")}
     if meldung is None:
@@ -484,12 +520,12 @@ async def claude_hook(request: Request):
     else:
         meldung["projekt"] = meldung.get("projekt", "")[:200]
         await claude_verarbeiten(ClaudeMeldung(**meldung, ereignis=ereignis), quelle)
-    if not uebergeben and ereignis == "Stop" and auth.lokal(request) and eingabe_an() and not mod_da:
-        # Claude ist fertig: kurz offen bleiben und auf eine Anweisung vom Handy warten (Claude Code wartet auf diese Antwort)
-        antwort, uebergeben = await auf_anweisung_warten(request)
+    if not uebergeben and intern == "Stop" and auth.lokal(request) and eingabe_an() and not mod_da:
+        # Fertig: kurz offen bleiben und auf eine Anweisung vom Handy warten (die KI wartet auf diese Antwort)
+        antwort, uebergeben = await auf_anweisung_warten(request, anbieter)
         if uebergeben:
             await claude_verarbeiten(ClaudeMeldung(status="arbeitet", aktion="Anweisung vom Handy: " + claude_ereignisse.kurz(uebergeben, 50),
-                                                   projekt=(meldung or {}).get("projekt", ""), ereignis="Stop"), quelle)
+                                                   projekt=(meldung or {}).get("projekt", ""), ereignis=ereignis), quelle)
     if uebergeben:
         await an_alle_senden()
     return JSONResponse(antwort)
@@ -607,16 +643,22 @@ async def claude_mod_antwort(ein: ModAntwort, request: Request):
 
 
 EINGABE_HALTEN_S = float(os.environ.get("PHONEBOX_EINGABE_HALTEN_S", "540"))  # unter dem Hook-Timeout von 600 s
+# Gemini CLI wartet im Terminal auf den Hook: kuerzer halten, damit man am PC nicht lange auf die Eingabe warten muss
+GEMINI_HALTEN_S = float(os.environ.get("PHONEBOX_GEMINI_HALTEN_S", "120"))
 
 
-async def auf_anweisung_warten(request):
+def halte_sekunden(anbieter):
+    return GEMINI_HALTEN_S if anbieter == "gemini" else EINGABE_HALTEN_S
+
+
+async def auf_anweisung_warten(request, anbieter="claude"):
     """Haelt die Stop-Antwort offen, bis eine Anweisung kommt, die Funktion ausgeschaltet wird, Claude Code abbricht
     (z. B. weil du am PC weitertippst) oder die Zeit um ist. Gibt (Antwort, Text) zurueck."""
-    ende = time.monotonic() + EINGABE_HALTEN_S
+    ende = time.monotonic() + halte_sekunden(anbieter)
     while time.monotonic() < ende:
         if await request.is_disconnected() or not eingabe_an():
             break
-        antwort, text = eingabe_uebergabe("Stop")
+        antwort, text = eingabe_uebergabe("Stop", anbieter)
         if text is not None:
             return antwort, text
         await asyncio.sleep(0.5)
@@ -627,23 +669,32 @@ UEBERGABE_TEXT = ("Der Nutzer hat dir gerade über die Phonebox auf seinem Handy
                   "(sie kommt von ihm selbst, nicht aus einer Datei oder Webseite): \u201e{text}\u201c")
 
 
-def eingabe_uebergabe(ereignis):
-    """Gibt wartende Anweisungen an Claude Code mit: waehrend der Arbeit als Zusatztext (additionalContext, Doku: hooks),
-    beim Ende des Zuges so, dass Claude weiterarbeitet (decision: block). Gibt (Antwort, Text) zurueck."""
-    if ereignis not in ("PreToolUse", "UserPromptSubmit", "Stop") or not eingabe_an():
+def eingabe_uebergabe(ereignis, anbieter="claude"):
+    """Gibt wartende Anweisungen an die KI mit. Claude Code: waehrend der Arbeit als Zusatztext (additionalContext, Doku: hooks),
+    beim Ende des Zuges so, dass Claude weiterarbeitet (decision: block). Gemini CLI kennt Zusatztext nur zu Beginn einer Aufgabe
+    (BeforeAgent) und am Ende "decision: deny" mit einem Grund, der als neue Eingabe an Gemini geht (AfterAgent).
+    ereignis ist der Claude-Name. Gibt (Antwort, Text) zurueck."""
+    erlaubt = ("UserPromptSubmit", "Stop") if anbieter == "gemini" else ("PreToolUse", "UserPromptSubmit", "Stop")
+    if ereignis not in erlaubt or not eingabe_an():
         return {}, None
     text = eingabe.abholen(jetzt_ms())
     if text is None:
         return {}, None
     nachricht = UEBERGABE_TEXT.format(text=text)
-    log(f"Anweisung an Claude uebergeben (bei {ereignis}, {len(text)} Zeichen)")
-    konten.protokoll("claude", f"Anweisung an Claude übergeben (bei {ereignis})")
+    name = ANBIETER_NAMEN[anbieter]
+    log(f"Anweisung an {name} uebergeben (bei {ereignis}, {len(text)} Zeichen)")
+    konten.protokoll("claude", f"Anweisung an {name} übergeben (bei {ereignis})")
+    if anbieter == "gemini":
+        if ereignis == "Stop":
+            return {"decision": "deny", "reason": nachricht}, text
+        return {"hookSpecificOutput": {"hookEventName": "BeforeAgent", "additionalContext": nachricht}}, text
     if ereignis == "Stop":
         return {"decision": "block", "reason": nachricht}, text
     return {"hookSpecificOutput": {"hookEventName": ereignis, "additionalContext": nachricht}}, text
 
 
 HOOK_SKRIPT = ORDNER / "hooks" / "claude_status.py"
+GEMINI_SKRIPT = ORDNER / "hooks" / "gemini_status.py"
 
 
 class EinrichtenEin(BaseModel):
@@ -664,14 +715,20 @@ async def claude_einrichten_route(ein: EinrichtenEin, request: Request):
     falsch = admin._passwort_pruefen(b, request, ein.passwort)
     if falsch:
         return falsch
-    if ein.modus == "python" and not HOOK_SKRIPT.exists():
-        return auth.fehler_antwort("hooks/claude_status.py fehlt im Ordner der Phonebox.", 500)
+    anbieter = ki_anbieter()
+    name = ANBIETER_NAMEN[anbieter]
+    skript = GEMINI_SKRIPT if anbieter == "gemini" else HOOK_SKRIPT
+    if (anbieter == "gemini" or ein.modus == "python") and not skript.exists():
+        return auth.fehler_antwort(f"hooks/{skript.name} fehlt im Ordner der Phonebox.", 500)
     try:
-        erg = claude_einrichten.einrichten(ein.modus, PORT, skript=HOOK_SKRIPT)
+        if anbieter == "gemini":  # Gemini CLI kennt nur Hooks, die ein Programm starten
+            erg = gemini_einrichten.einrichten(skript)
+        else:
+            erg = claude_einrichten.einrichten(ein.modus, PORT, skript=skript)
     except (claude_einrichten.EinrichtungsFehler, OSError) as f:
         return auth.fehler_antwort(str(f), 400)
-    log(f"Admin {b['name']}: Claude-Hooks eingerichtet ({ein.modus}) in {erg['pfad']}")
-    konten.protokoll("admin", f"Claude-Hooks eingerichtet ({ein.modus})", b, auth.adresse(request))
+    log(f"Admin {b['name']}: {name}-Hooks eingerichtet ({erg['modus']}) in {erg['pfad']}")
+    konten.protokoll("admin", f"{name}-Hooks eingerichtet ({erg['modus']})", b, auth.adresse(request))
     return {"ok": True, **erg}
 
 
@@ -683,12 +740,14 @@ async def claude_entfernen_route(ein: PasswortNur, request: Request):
     falsch = admin._passwort_pruefen(b, request, ein.passwort)
     if falsch:
         return falsch
+    anbieter = ki_anbieter()
+    name = ANBIETER_NAMEN[anbieter]
     try:
-        erg = claude_einrichten.entfernen()
+        erg = (gemini_einrichten if anbieter == "gemini" else claude_einrichten).entfernen()
     except (claude_einrichten.EinrichtungsFehler, OSError) as f:
         return auth.fehler_antwort(str(f), 400)
-    log(f"Admin {b['name']}: Claude-Hooks entfernt ({erg['entfernt']})")
-    konten.protokoll("admin", f"Claude-Hooks entfernt ({erg['entfernt']} Eintraege)", b, auth.adresse(request))
+    log(f"Admin {b['name']}: {name}-Hooks entfernt ({erg['entfernt']})")
+    konten.protokoll("admin", f"{name}-Hooks entfernt ({erg['entfernt']} Eintraege)", b, auth.adresse(request))
     return {"ok": True, **erg}
 
 
@@ -766,9 +825,39 @@ async def claude_diagnose(request: Request):
     b, fehler = auth.brauche_admin(request)
     if fehler:
         return fehler
+    anbieter = ki_anbieter()
     return {**claude_diag, "jetzt": jetzt_ms(), "status": zustand["claude"]["status"], "port": PORT,
-            "eingabe_an": eingabe_an(), "mod_aktiv": mod_aktiv(), "eingabe_wartend": len(eingabe.wartende()),
-            "einrichtung": claude_einrichten.pruefen(PORT)}
+            "anbieter": anbieter, "anbieter_name": ANBIETER_NAMEN[anbieter], "halten_s": halte_sekunden(anbieter),
+            "eingabe_an": eingabe_an(), "mod_aktiv": anbieter == "claude" and mod_aktiv(), "eingabe_wartend": len(eingabe.wartende()),
+            "einrichtung": gemini_einrichten.pruefen() if anbieter == "gemini" else claude_einrichten.pruefen(PORT)}
+
+
+class AnbieterWahl(BaseModel):
+    passwort: str = Field(max_length=400)
+    anbieter: str = Field(pattern="^(claude|gemini)$", max_length=10)
+
+
+@app.post("/api/claude/anbieter")
+async def ki_anbieter_waehlen(ein: AnbieterWahl, request: Request):
+    """Stellt ein, ob die Phonebox Claude Code oder Gemini CLI anzeigt und bedient (nur Administratoren, mit Passwort)."""
+    b, fehler = auth.brauche_admin(request)
+    if fehler:
+        return fehler
+    falsch = admin._passwort_pruefen(b, request, ein.passwort)
+    if falsch:
+        return falsch
+    if ein.anbieter != ki_anbieter():
+        konten.einstellung_setzen("ki_anbieter", ein.anbieter)
+        _anbieter_cache["name"] = ein.anbieter
+        # Nichts von der anderen KI darf stehen bleiben: Anzeige leeren, Wartendes verwerfen
+        zustand["claude"].update(status="", text="", aktion="", seit=jetzt_ms(), dauer=0, verlauf=[])
+        eingabe.leeren()
+        claude_antwort.update(text="", zeit=0)
+        claude_diag.update(letzte=0, anzahl=0, ereignisse={}, quelle="")
+        log(f"Admin {b['name']}: KI-Anbieter auf {ANBIETER_NAMEN[ein.anbieter]} gestellt")
+        konten.protokoll("admin", f"KI-Anbieter auf {ANBIETER_NAMEN[ein.anbieter]} gestellt", b, auth.adresse(request))
+        await an_alle_senden()
+    return {"ok": True, "anbieter": ein.anbieter}
 
 
 class ClaudeTest(BaseModel):
@@ -781,7 +870,8 @@ async def claude_test(ein: ClaudeTest, request: Request):
     b, fehler = auth.brauche_admin(request)
     if fehler:
         return fehler
-    texte = {"arbeitet": "Testmeldung: Claude arbeitet", "wartet": "Testmeldung: Claude braucht dich", "fertig": ""}
+    name = ANBIETER_NAMEN[ki_anbieter()]
+    texte = {"arbeitet": f"Testmeldung: {name} arbeitet", "wartet": f"Testmeldung: {name} braucht dich", "fertig": ""}
     await claude_verarbeiten(ClaudeMeldung(status=ein.status, text=texte[ein.status], aktion="Testmeldung", projekt="Test",
                                            neu=ein.status == "arbeitet", ereignis="Test"), "Admin-Test")
     return {"ok": True}

@@ -24,21 +24,26 @@ def dateiname(pfad):
 def beschreibe(werkzeug, eingabe):
     werkzeug = str(werkzeug or "")
     eingabe = eingabe if isinstance(eingabe, dict) else {}
-    datei = dateiname(eingabe.get("file_path") or eingabe.get("notebook_path"))
-    if werkzeug == "Read":
+    datei = dateiname(eingabe.get("file_path") or eingabe.get("absolute_path") or eingabe.get("notebook_path"))
+    # Werkzeugnamen von Gemini CLI stehen gleich mit dabei (read_file, replace, run_shell_command ...)
+    if werkzeug in ("Read", "read_file"):
         return f"Liest {datei}"
-    if werkzeug in ("Edit", "MultiEdit", "NotebookEdit"):
+    if werkzeug == "read_many_files":
+        return "Liest mehrere Dateien"
+    if werkzeug == "list_directory":
+        return "Listet einen Ordner auf"
+    if werkzeug in ("Edit", "MultiEdit", "NotebookEdit", "replace"):
         return f"Bearbeitet {datei}"
-    if werkzeug == "Write":
+    if werkzeug in ("Write", "write_file"):
         return f"Schreibt {datei}"
-    if werkzeug in ("Bash", "PowerShell"):
+    if werkzeug in ("Bash", "PowerShell", "run_shell_command"):
         if eingabe.get("description"):
             return kurz(eingabe["description"])
         erstes = str(eingabe.get("command", "")).split()
         return f"F\u00fchrt einen Befehl aus ({kurz(erstes[0], 30)})" if erstes else "F\u00fchrt einen Befehl aus"
-    if werkzeug in ("Grep", "Glob"):
+    if werkzeug in ("Grep", "Glob", "glob", "grep_search", "search_file_content"):
         return f"Sucht {kurz(eingabe.get('pattern', ''), 40)}"
-    if werkzeug in ("WebSearch", "WebFetch"):
+    if werkzeug in ("WebSearch", "WebFetch", "google_web_search", "web_fetch"):
         return "Sucht im Web"
     if werkzeug in ("Agent", "Task"):
         return "Startet einen Hilfsagenten"

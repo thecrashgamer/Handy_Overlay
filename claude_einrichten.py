@@ -96,11 +96,12 @@ def laden(pfad):
     return daten
 
 
-def _ohne_unsere(gruppen):
+def _ohne_unsere(gruppen, unser=None):
+    unser = unser or ist_unser
     sauber = []
     for g in gruppen:
         if isinstance(g, dict) and isinstance(g.get("hooks"), list):
-            rest = [h for h in g["hooks"] if not ist_unser(h)]
+            rest = [h for h in g["hooks"] if not unser(h)]
             if rest:
                 sauber.append({**g, "hooks": rest})
         else:
