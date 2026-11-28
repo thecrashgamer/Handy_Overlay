@@ -53,6 +53,17 @@ class ShortcutTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 shortcuts.ausfuehren({"name": "S", "aktion": "sperren"})
 
+    def test_ruhemodus(self):
+        e = {"name": "Ruhe", "aktion": "ruhemodus"}
+        self.assertIn("ruhemodus", shortcuts.AKTIONEN)
+        self.assertIn("ruhemodus", shortcuts.AKTION_NAMEN)
+        self.assertEqual(shortcuts.meldung(e), "PC geht in den Ruhemodus")
+        self.assertFalse(shortcuts.braucht_admin(e))
+        self.assertTrue(shortcuts.braucht_bestaetigung({**e, "bestaetigen": True}))
+        if sys.platform != "win32":
+            with self.assertRaises(RuntimeError):
+                shortcuts.ausfuehren(e)
+
     def test_standarddatei_ist_gueltig(self):
         pfad = os.path.join(os.path.dirname(__file__), "..", "shortcuts.json")
         liste = shortcuts.laden(pfad)

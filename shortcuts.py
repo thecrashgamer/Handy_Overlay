@@ -8,7 +8,7 @@ Eintrags, nie einen freien Befehl. Beispiele:
   { "name": "Sperren",  "icon": "🔒", "aktion": "sperren" }
   { "name": "Aus",      "icon": "⏻",  "aktion": "herunterfahren", "frage": "PC wirklich herunterfahren?" }
 
-Aktionen (fest eingebaut): sperren, herunterfahren, herunterfahren_stoppen.
+Aktionen (fest eingebaut): sperren, ruhemodus (Energiesparmodus), herunterfahren, herunterfahren_stoppen.
 Mit "bestaetigen": true verlangt jeder Eintrag eine Rueckfrage; "herunterfahren" tut das immer.
 Hinweis: Win+L laesst sich von Windows aus nicht simulieren, darum gibt es die Aktion "sperren".
 """
@@ -31,7 +31,7 @@ TASTEN = {
 }
 for _n in range(1, 13):
     TASTEN[f"f{_n}"] = 0x70 + _n - 1
-AKTIONEN = {"sperren", "herunterfahren", "herunterfahren_stoppen"}
+AKTIONEN = {"sperren", "ruhemodus", "herunterfahren", "herunterfahren_stoppen"}
 BESTAETIGEN_PFLICHT = {"herunterfahren"}
 ADMIN_AKTIONEN = {"herunterfahren", "herunterfahren_stoppen"}  # immer nur fuer Administratoren
 HERUNTERFAHREN_SEKUNDEN = 15  # so lange kann man noch mit "herunterfahren_stoppen" abbrechen
@@ -82,6 +82,7 @@ def tasten_parsen(text):
 MAX_SHORTCUTS = 24
 AKTION_NAMEN = {
     "sperren": "PC sperren",
+    "ruhemodus": "PC in den Ruhemodus schicken (Handy kann ihn nicht wecken)",
     "herunterfahren": "PC herunterfahren (fragt immer nach)",
     "herunterfahren_stoppen": "Herunterfahren abbrechen",
 }
@@ -207,6 +208,8 @@ def meldung(eintrag):
     """Text, den das iPhone nach dem Ausloesen kurz zeigt."""
     if eintrag.get("aktion") == "herunterfahren":
         return f"PC f\u00e4hrt in {HERUNTERFAHREN_SEKUNDEN} Sekunden herunter. Zum Abbrechen: Herunterfahren stoppen"
+    if eintrag.get("aktion") == "ruhemodus":
+        return "PC geht in den Ruhemodus"
     return f"{eintrag['name']} ausgel\u00f6st"
 
 
@@ -225,6 +228,11 @@ def _aktion(name):
 
         if not ctypes.windll.user32.LockWorkStation():
             raise OSError("LockWorkStation ist fehlgeschlagen")
+    elif name == "ruhemodus":
+        import ctypes
+
+        # SetSuspendState(Ruhezustand=0, erzwingen=0, Aufwachen=0): Energiesparmodus (Standby), kein Ruhezustand
+        ctypes.windll.powrprof.SetSuspendState(0, 0, 0)
     elif name == "herunterfahren":
         subprocess.Popen(shutdown_befehl(), creationflags=KEIN_FENSTER)
     elif name == "herunterfahren_stoppen":

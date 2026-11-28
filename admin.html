@@ -188,6 +188,7 @@
     { name: "Screenshot", icon: "📸", art: "tasten", tasten: "win+shift+s" },
     { name: "Ton aus", icon: "🔇", art: "tasten", tasten: "stumm" },
     { name: "Sperren", icon: "🔒", art: "aktion", aktion: "sperren" },
+    { name: "Ruhemodus", icon: "🌙", art: "aktion", aktion: "ruhemodus", bestaetigen: true, frage: "PC in den Ruhemodus schicken? Das Handy kann ihn nicht wieder wecken." },
     { name: "Herunterfahren", icon: "⏻", art: "aktion", aktion: "herunterfahren", frage: "PC wirklich herunterfahren?" },
     { name: "Herunterfahren stoppen", icon: "✋", art: "aktion", aktion: "herunterfahren_stoppen" }
   ];
@@ -373,7 +374,7 @@
       h("div", { class: "hinweis", text: "Oder ein Bild auf diese Karte ziehen oder mit Strg+V einfügen. Ein Bild ersetzt das Emoji." })]));
 
     var art = h("select", {});
-    [["programm", "Programm, Datei oder Webadresse starten"], ["tasten", "Tastenkürzel senden"], ["aktion", "Aktion (Sperren, Herunterfahren)"]].forEach(function (o) {
+    [["programm", "Programm, Datei oder Webadresse starten"], ["tasten", "Tastenkürzel senden"], ["aktion", "Aktion (Sperren, Ruhemodus, Herunterfahren)"]].forEach(function (o) {
       var op = h("option", { value: o[0], text: o[1] });
       if (f.art === o[0]) op.selected = true;
       art.appendChild(op);
