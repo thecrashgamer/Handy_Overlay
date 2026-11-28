@@ -100,6 +100,13 @@
       <input type="password" id="cl-pw" placeholder="Zum Einrichten: dein Passwort" autocomplete="current-password">
       <button class="knopf" onclick="claudeEinrichten('http')">Hooks einrichten</button>
     </div>
+    <div class="zeile2" style="align-items:flex-start">
+      <div style="flex:1 1 260px">
+        <div><b>Anweisungen vom Handy an Claude</b> <span id="cl-eingabe-stand" class="hinweis"></span></div>
+        <div class="hinweis" style="margin-top:4px">Wenn eingeschaltet, kannst du als Administrator in der Claude-Ansicht am Handy Text eintippen, den Claude als Anweisung bekommt. Claude kann auf diesem PC Dateien ändern und Programme starten. Deshalb: standardmäßig aus, nur Administratoren, alles steht im Aktivitätsprotokoll, Anweisungen verfallen nach 15 Minuten.</div>
+      </div>
+      <button class="knopf zweit" id="cl-eingabe-knopf" onclick="claudeEingabeSchalten()">Einschalten</button>
+    </div>
     <div class="zeile2">
       <span class="hinweis">Testmeldung:</span>
       <button class="knopf zweit" onclick="claudeTest('arbeitet')">Arbeitet</button>
@@ -590,6 +597,9 @@
       lage.appendChild(h("div", { class: "hinweis", text: "Datei: " + e.pfad }));
       (e.hinweise || []).forEach(function (t) { hinweise.push(t); });
 
+      eingabeAn = !!d.eingabe_an;
+      el("cl-eingabe-stand").textContent = eingabeAn ? "(eingeschaltet" + (d.eingabe_wartend ? ", " + d.eingabe_wartend + " wartend" : "") + ")" : "(ausgeschaltet)";
+      el("cl-eingabe-knopf").textContent = eingabeAn ? "Ausschalten" : "Einschalten";
       var m = el("cl-meldungen");
       if (!d.anzahl) {
         m.textContent = "Von Claude ist seit dem Start des Servers noch nichts angekommen.";
@@ -604,6 +614,20 @@
       box.textContent = "";
       hinweise.forEach(function (t) { box.appendChild(h("div", { style: "color:#f5a623;margin-top:6px", text: t })); });
     }).catch(function () {});
+  }
+
+  var eingabeAn = false;
+
+  function claudeEingabeSchalten() {
+    var pw = el("cl-pw").value;
+    if (!pw) { clMeldung("Gib dein Passwort ein (Feld oben).", "fehler"); return; }
+    var neu = !eingabeAn;
+    if (neu && !confirm("Anweisungen vom Handy an Claude einschalten? Claude kann auf diesem PC Dateien ändern und Programme starten.")) return;
+    anfrage("POST", "/api/claude/eingabe", { passwort: pw, an: neu }).then(function (a) {
+      el("cl-pw").value = "";
+      clMeldung(a.an ? "Eingeschaltet. In der Claude-Ansicht am Handy erscheint ein Eingabefeld." : "Ausgeschaltet. Wartende Anweisungen wurden verworfen.", "ok");
+      claudeDiagnose();
+    }).catch(function (f) { clMeldung(f.message, "fehler"); });
   }
 
   function claudeEinrichten(modus) {

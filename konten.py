@@ -233,6 +233,17 @@ class Konten:
                             "ON CONFLICT(schluessel) DO UPDATE SET wert=excluded.wert", (modus,))
             self.db.commit()
 
+    def einstellung(self, schluessel, standard=""):
+        with self.lock:
+            z = self.db.execute("SELECT wert FROM einstellungen WHERE schluessel=?", (schluessel,)).fetchone()
+        return z["wert"] if z else standard
+
+    def einstellung_setzen(self, schluessel, wert):
+        with self.lock:
+            self.db.execute("INSERT INTO einstellungen(schluessel, wert) VALUES(?, ?) "
+                            "ON CONFLICT(schluessel) DO UPDATE SET wert=excluded.wert", (schluessel, str(wert)))
+            self.db.commit()
+
     # --- Registrieren
     def registrieren(self, name, passwort, lokal=True, jetzt=None):
         """Legt ein Konto an. Gibt Benutzer und Wiederherstellungscodes zurueck (Codes nur dieses eine Mal)."""
