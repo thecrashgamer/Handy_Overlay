@@ -240,7 +240,7 @@
         <textarea id="cl-text" rows="2" maxlength="2000" placeholder="Anweisung an Claude ..." enterkeyhint="send"></textarea>
         <button id="cl-senden" onclick="claudeSenden()">An Claude senden</button>
         <div id="cl-efehler" role="alert"></div>
-        <div class="hinweis" style="font-size:12px;color:#777;margin-top:6px">Claude holt die Anweisung ab, sobald er den nächsten Schritt macht. Ist er fertig, wartet er noch bis zu 9 Minuten darauf; danach kommt sie erst, wenn du am PC etwas eingibst.</div>
+        <div class="hinweis" id="cl-hinweis" style="font-size:12px;color:#777;margin-top:6px">Claude holt die Anweisung ab, sobald er den nächsten Schritt macht. Ist er fertig, wartet er noch bis zu 9 Minuten darauf; danach kommt sie erst, wenn du am PC etwas eingibst.</div>
         <div id="cl-eliste"></div>
       </div>
     </div>
@@ -308,6 +308,8 @@
   var scStand = "";
   var letzteShortcutNr = null;
   var hinweisTimer;
+  var KI = "Claude";  // Name der gewaehlten KI (im Admin-Bereich: Claude oder Gemini), kommt vom Server
+  function ki(text) { return KI === "Claude" ? text : String(text).split("Claude").join(KI); }
   var CLAUDE_TEXT = { arbeitet: "Claude arbeitet ...", fertig: "Claude ist fertig", wartet: "Claude braucht dich" };
 
   function el(id) { return document.getElementById(id); }
@@ -352,6 +354,7 @@
       teil("Extras", function () { extrasZeigen(d); });
       teil("Zeitleiste", function () { zeitUebernehmen(d); });
       teil("Rechte", function () { rechteZeigen(d.rechte); });
+      teil("Anbieter", function () { KI = d.anbieter || "Claude"; });
       teil("Claude", function () { claudeZeigen(d.claude || {}); });
       teil("Claude-Nutzung", function () { claudeNutzungZeigen(d.claude_nutzung); });
       teil("Claude-Eingabe", function () { claudeEingabeZeigen(d.claude_eingabe || {}); });
@@ -503,12 +506,12 @@
 
     var banner = el("claude");
     banner.className = status;
-    var kopf = c.text || (status === "arbeitet" && c.aktion ? "Claude: " + c.aktion : "");
-    banner.textContent = status ? (kopf || CLAUDE_TEXT[status] || status) : "";
+    var kopf = c.text || (status === "arbeitet" && c.aktion ? KI + ": " + c.aktion : "");
+    banner.textContent = status ? (kopf || ki(CLAUDE_TEXT[status] || status)) : "";
 
     el("claudeview").className = status;
     el("cl-projekt").textContent = c.projekt ? "Projekt: " + c.projekt : "";
-    el("cl-titel").textContent = CLAUDE_TITEL[status] || "Claude";
+    el("cl-titel").textContent = ki(CLAUDE_TITEL[status] || "Claude");
     el("cl-aktion").textContent = status === "wartet" ? (c.text || "") : (c.aktion || "");
 
     var verlauf = c.verlauf || [];
@@ -580,11 +583,15 @@
     var sichtbar = !!(e.an && e.darf);
     el("cl-eingabe").hidden = !sichtbar;
     if (!sichtbar) return;
+    el("cl-text").placeholder = "Anweisung an " + KI + " ...";
+    el("cl-senden").textContent = "An " + KI + " senden";
+    var min = Math.max(1, Math.round((e.halten_s || 540) / 60));
+    el("cl-hinweis").textContent = KI + " holt die Anweisung ab, sobald er den nächsten Schritt macht. Ist er fertig, wartet er noch bis zu " + min + (min === 1 ? " Minute" : " Minuten") + " darauf; danach kommt sie erst, wenn du am PC etwas eingibst.";
     var a = e.antwort;
     el("cl-antwort").hidden = !a;
     if (a) {
       var uhr = new Date(a.zeit);
-      el("cl-antwort-kopf").textContent = "Antwort von Claude \u00b7 " + (uhr.getHours() < 10 ? "0" : "") + uhr.getHours() + ":" + (uhr.getMinutes() < 10 ? "0" : "") + uhr.getMinutes();
+      el("cl-antwort-kopf").textContent = "Antwort von " + KI + " \u00b7 " + (uhr.getHours() < 10 ? "0" : "") + uhr.getHours() + ":" + (uhr.getMinutes() < 10 ? "0" : "") + uhr.getMinutes();
       if (el("cl-antwort-text").textContent !== a.text) el("cl-antwort-text").textContent = a.text;
     }
     var stand = JSON.stringify(e.eintraege || []);
@@ -600,7 +607,7 @@
       text.textContent = x.text;
       var zustand = document.createElement("span");
       zustand.className = "zustand " + x.status;
-      zustand.textContent = EINGABE_ZUSTAND[x.status] || x.status;
+      zustand.textContent = ki(EINGABE_ZUSTAND[x.status] || x.status);
       zeile.appendChild(text);
       zeile.appendChild(zustand);
       if (x.status === "wartet") {
@@ -943,7 +950,7 @@
       var farben = { arbeitet: "#a56d12", fertig: "#14803a", wartet: "#2f5fa8" };
       box.style.display = "block";
       box.querySelector(".punkt").style.background = farben[c.status] || "#555";
-      el("sb-claude-text").textContent = (CLAUDE_TITEL[c.status] || "Claude") + (c.status === "arbeitet" && c.aktion ? ": " + c.aktion : "");
+      el("sb-claude-text").textContent = ki(CLAUDE_TITEL[c.status] || "Claude") + (c.status === "arbeitet" && c.aktion ? ": " + c.aktion : "");
     } else {
       box.style.display = "none";
     }

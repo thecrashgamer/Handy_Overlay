@@ -92,7 +92,16 @@
   </div>
   <div id="neuzone">Bild hierher ziehen, um daraus einen neuen Shortcut anzulegen</div>
   <div class="karte system" id="claude-karte">
-    <h2 style="margin-top:0">Claude-Status</h2>
+    <h2 style="margin-top:0"><span id="cl-ki-name">Claude</span>-Status</h2>
+    <div class="zeile2">
+      <label for="cl-anbieter" class="hinweis">KI auf diesem PC:</label>
+      <select id="cl-anbieter">
+        <option value="claude">Claude (Claude Code)</option>
+        <option value="gemini">Gemini (Gemini CLI)</option>
+      </select>
+      <button class="knopf zweit" onclick="kiWaehlen()">Übernehmen</button>
+    </div>
+    <div class="hinweis" style="margin-top:0">Gilt für Anzeige, Anweisungen vom Handy und „Hooks einrichten“. Ereignisse der anderen KI werden gezählt, aber nicht angezeigt. Zum Übernehmen und Einrichten dein Passwort im Feld unten eintragen.</div>
     <div id="cl-lage" class="upd-ergebnis" style="margin-top:0">Prüfe ...</div>
     <div id="cl-meldungen" class="hinweis" style="margin-top:8px"></div>
     <div id="cl-hinweise" class="upd-ergebnis"></div>
@@ -102,8 +111,8 @@
     </div>
     <div class="zeile2" style="align-items:flex-start">
       <div style="flex:1 1 260px">
-        <div><b>Anweisungen vom Handy an Claude</b> <span id="cl-eingabe-stand" class="hinweis"></span></div>
-        <div class="hinweis" style="margin-top:4px">Wenn eingeschaltet, kannst du als Administrator in der Claude-Ansicht am Handy Text eintippen, den Claude als Anweisung bekommt. Claude kann auf diesem PC Dateien ändern und Programme starten. Deshalb: standardmäßig aus, nur Administratoren, alles steht im Aktivitätsprotokoll, Anweisungen verfallen nach 15 Minuten.</div>
+        <div><b>Anweisungen vom Handy an <span class="ki-name">Claude</span></b> <span id="cl-eingabe-stand" class="hinweis"></span></div>
+        <div class="hinweis" style="margin-top:4px">Wenn eingeschaltet, kannst du als Administrator in der Claude-Ansicht am Handy Text eintippen, den <span class="ki-name">Claude</span> als Anweisung bekommt. <span class="ki-name">Claude</span> kann auf diesem PC Dateien ändern und Programme starten. Deshalb: standardmäßig aus, nur Administratoren, alles steht im Aktivitätsprotokoll, Anweisungen verfallen nach 15 Minuten.</div>
       </div>
       <button class="knopf zweit" id="cl-eingabe-knopf" onclick="claudeEingabeSchalten()">Einschalten</button>
     </div>
@@ -113,15 +122,16 @@
       <button class="knopf zweit" onclick="claudeTest('wartet')">Braucht dich</button>
       <button class="knopf zweit" onclick="claudeTest('fertig')">Fertig</button>
     </div>
-    <details class="ausklapp">
+    <details class="ausklapp" id="cl-weitere">
       <summary>Weitere Möglichkeiten</summary>
       <div class="zeile2">
-        <button class="knopf zweit" onclick="claudeEinrichten('python')">Python-Variante einrichten</button>
+        <button class="knopf zweit" id="cl-python-knopf" onclick="claudeEinrichten('python')">Python-Variante einrichten</button>
         <button class="knopf zweit" onclick="claudeEntfernen()">Hooks entfernen</button>
       </div>
       <div class="hinweis" style="margin-top:6px">Die Python-Variante brauchst du nur, wenn dein Claude Code keine http-Hooks kennt. „Entfernen“ löscht nur die Einträge der Phonebox aus der Datei, alles andere bleibt.</div>
     </details>
-    <div class="hinweis" style="margin-top:12px">So geht es: Hooks einrichten, dann in der Claude-App eine <b>lokale</b> Sitzung auf diesem PC starten (nicht Cloud: dort laufen Hooks nicht auf deinem PC) und den Ordner als vertrauenswürdig bestätigen. Mit <code>/hooks</code> siehst du dort die Einträge. Danach eine Aufgabe eingeben.</div>
+    <div class="hinweis" id="cl-so-gemini" hidden style="margin-top:12px">So geht es: Hooks einrichten (das trägt sie in <code>~/.gemini/settings.json</code> ein), dann Gemini CLI auf diesem PC <b>neu starten</b>, denn Hooks werden beim Start geladen. Danach eine Aufgabe eingeben. Gemini CLI startet dafür <code>hooks/gemini_status.py</code> mit Python; ob das Skript die Phonebox erreicht, prüfst du mit <code>python hooks/gemini_status.py --test</code>. Das Schreiben an Gemini klappt über „fertig“ und zu Beginn einer neuen Aufgabe, nicht mitten in der Arbeit.</div>
+    <div class="hinweis" id="cl-so-claude" style="margin-top:12px">So geht es: Hooks einrichten, dann in der Claude-App eine <b>lokale</b> Sitzung auf diesem PC starten (nicht Cloud: dort laufen Hooks nicht auf deinem PC) und den Ordner als vertrauenswürdig bestätigen. Mit <code>/hooks</code> siehst du dort die Einträge. Danach eine Aufgabe eingeben.</div>
     <div class="meldung" id="cl-fehler" role="alert"></div>
   </div>
 
@@ -585,8 +595,33 @@
     return s < 60 ? "vor " + s + " s" : s < 3600 ? "vor " + Math.round(s / 60) + " Min" : "vor " + Math.round(s / 3600) + " Std";
   }
 
+  var kiName = "Claude";
+
+  function kiAnzeigen(d) {
+    kiName = d.anbieter_name || "Claude";
+    var gemini = d.anbieter === "gemini";
+    el("cl-ki-name").textContent = kiName;
+    Array.prototype.forEach.call(document.querySelectorAll(".ki-name"), function (n) { n.textContent = kiName; });
+    if (document.activeElement !== el("cl-anbieter")) el("cl-anbieter").value = d.anbieter || "claude";
+    el("cl-so-gemini").hidden = !gemini;
+    el("cl-so-claude").hidden = gemini;
+    el("cl-python-knopf").hidden = gemini;  // Gemini CLI startet immer ein Programm: es gibt nur diese eine Art
+  }
+
+  function kiWaehlen() {
+    var pw = el("cl-pw").value;
+    if (!pw) { clMeldung("Gib dein Passwort ein (Feld unten).", "fehler"); return; }
+    anfrage("POST", "/api/claude/anbieter", { passwort: pw, anbieter: el("cl-anbieter").value }).then(function (a) {
+      el("cl-pw").value = "";
+      clMeldung((a.anbieter === "gemini" ? "Gemini" : "Claude") + " ist gewählt. Klicke jetzt auf „Hooks einrichten“, falls das noch nicht geschehen ist.", "ok");
+      claudeDiagnose();
+    }).catch(function (f) { clMeldung(f.message, "fehler"); });
+  }
+
   function claudeDiagnose() {
     return anfrage("GET", "/api/claude/diagnose").then(function (d) {
+      kiAnzeigen(d);
+      var gemini = d.anbieter === "gemini";
       var e = d.einrichtung || {}, lage = el("cl-lage"), hinweise = [];
       lage.textContent = "";
       var farbe, text;
@@ -599,12 +634,14 @@
       (e.hinweise || []).forEach(function (t) { hinweise.push(t); });
 
       eingabeAn = !!d.eingabe_an;
-      el("cl-eingabe-stand").textContent = eingabeAn ? "(eingeschaltet" + (d.eingabe_wartend ? ", " + d.eingabe_wartend + " wartend" : "") + (d.mod_aktiv ? ", Claude-Mod verbunden" : ", Claude-Mod nicht verbunden") + ")" : "(ausgeschaltet)";
+      el("cl-eingabe-stand").textContent = eingabeAn ? "(eingeschaltet" + (d.eingabe_wartend ? ", " + d.eingabe_wartend + " wartend" : "") + (gemini ? "" : d.mod_aktiv ? ", Claude-Mod verbunden" : ", Claude-Mod nicht verbunden") + ")" : "(ausgeschaltet)";
       el("cl-eingabe-knopf").textContent = eingabeAn ? "Ausschalten" : "Einschalten";
       var m = el("cl-meldungen");
       if (!d.anzahl) {
-        m.textContent = "Von Claude ist seit dem Start des Servers noch nichts angekommen.";
-        if (e.ereignisse.length && !e.fehlend.length) {
+        m.textContent = "Von " + kiName + " ist seit dem Start des Servers (oder der Auswahl der KI) noch nichts angekommen.";
+        if (gemini && e.ereignisse.length && !e.fehlend.length) {
+          hinweise.push("Die Hooks sind eingetragen, aber es kam noch nichts an. Prüfe: (1) Gemini CLI wurde nach dem Einrichten neu gestartet. (2) Es läuft auf diesem PC. (3) Eine neue Aufgabe wurde eingegeben. (4) Mit python hooks/gemini_status.py --test siehst du, ob das Skript die Phonebox erreicht (Protokoll: daten/gemini-hook.log).");
+        } else if (!gemini && e.ereignisse.length && !e.fehlend.length) {
           hinweise.push("Die Hooks sind eingetragen, aber es kam noch nichts an. Prüfe: (1) In der Claude-App läuft eine lokale Sitzung, keine Cloud-Sitzung. (2) Der Ordner ist als vertrauenswürdig bestätigt. (3) Mit /hooks in Claude Code erscheinen die Phonebox-Einträge. (4) Eine neue Aufgabe wurde eingegeben (nicht nur geöffnet). Hilft das nicht, probiere „Python-Variante einrichten“.");
         }
       } else {
@@ -623,7 +660,7 @@
     var pw = el("cl-pw").value;
     if (!pw) { clMeldung("Gib dein Passwort ein (Feld oben).", "fehler"); return; }
     var neu = !eingabeAn;
-    if (neu && !confirm("Anweisungen vom Handy an Claude einschalten? Claude kann auf diesem PC Dateien ändern und Programme starten.")) return;
+    if (neu && !confirm("Anweisungen vom Handy an " + kiName + " einschalten? " + kiName + " kann auf diesem PC Dateien ändern und Programme starten.")) return;
     anfrage("POST", "/api/claude/eingabe", { passwort: pw, an: neu }).then(function (a) {
       el("cl-pw").value = "";
       clMeldung(a.an ? "Eingeschaltet. In der Claude-Ansicht am Handy erscheint ein Eingabefeld." : "Ausgeschaltet. Wartende Anweisungen wurden verworfen.", "ok");
@@ -637,7 +674,7 @@
     clMeldung("");
     anfrage("POST", "/api/claude/einrichten", { passwort: pw, modus: modus }).then(function (a) {
       el("cl-pw").value = "";
-      clMeldung("Eingetragen in " + a.pfad + (a.sicherung ? " (Sicherung der alten Datei: " + a.sicherung + ")" : "") + ". Starte jetzt eine lokale Sitzung in der Claude-App.", "ok");
+      clMeldung("Eingetragen in " + a.pfad + (a.sicherung ? " (Sicherung der alten Datei: " + a.sicherung + ")" : "") + (kiName === "Gemini" ? ". Starte Gemini CLI jetzt neu." : ". Starte jetzt eine lokale Sitzung in der Claude-App."), "ok");
       claudeDiagnose();
     }).catch(function (f) { clMeldung(f.message, "fehler"); });
   }
@@ -645,7 +682,7 @@
   function claudeEntfernen() {
     var pw = el("cl-pw").value;
     if (!pw) { clMeldung("Gib dein Passwort ein.", "fehler"); return; }
-    if (!confirm("Die Phonebox-Hooks aus der settings.json von Claude Code entfernen?")) return;
+    if (!confirm("Die Phonebox-Hooks aus der settings.json von " + (kiName === "Gemini" ? "Gemini CLI" : "Claude Code") + " entfernen?")) return;
     anfrage("POST", "/api/claude/entfernen", { passwort: pw }).then(function (a) {
       el("cl-pw").value = "";
       clMeldung(a.entfernt + " Einträge entfernt.", "ok");

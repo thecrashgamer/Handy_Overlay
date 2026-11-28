@@ -126,6 +126,7 @@ node tests/standby.test.js            # Standby-Modus
 node tests/icons.test.js              # Bilder als Symbole
 node tests/geraete.test.js            # GPU und Akkus
 node tests/claude.test.js             # Claude-Status, Hooks, Ton
+node tests/gemini.test.js             # Gemini CLI statt Claude: Auswahl, Hooks, Anweisungen
 node tests/adminupdate.test.js        # Update per Knopf (mit echtem Neustart, dauert etwas)
 # test_update.py prüft das Update-Skript, auch mit einem echten Neustart
 python3 -m unittest discover -s tests -p 'test_*.py'
@@ -149,9 +150,19 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `benutzer.py` | Konten am PC verwalten |
 | `start.bat` | Einrichtung und Autostart |
 | `update.bat`, `update.py` | Aktualisieren auf die neueste Version |
-| `hooks/` | Python-Variante des Claude-Hooks |
+| `hooks/` | Python-Variante des Claude-Hooks, Hook für Gemini CLI (`gemini_status.py`) |
 | `claude_ereignisse.py`, `claude_einrichten.py` | Auswertung der Claude-Ereignisse, Eintragen in die settings.json |
+| `gemini_ereignisse.py`, `gemini_einrichten.py` | dasselbe für Gemini CLI (`~/.gemini/settings.json`) |
 | `tests/` | UI-Test und Shortcut-Tests |
+
+## Gemini CLI statt Claude Code
+
+Im Admin-Bereich, Kasten „Claude-Status“, wählst du bei „KI auf diesem PC“ zwischen **Claude (Claude Code)** und **Gemini (Gemini CLI)**. Die Wahl gilt für Anzeige am Handy (Texte, Banner), Anweisungen vom Handy und „Hooks einrichten“ / „Hooks entfernen“. Es ist immer nur eine KI aktiv: Ereignisse der anderen werden in der Diagnose gezählt, ändern aber nichts. Beim Umschalten wird die Anzeige geleert und Wartendes verworfen.
+
+- **Einrichten:** Gemini wählen, Passwort eingeben, „Hooks einrichten“, dann **Gemini CLI neu starten** (Hooks werden beim Start geladen). Das trägt Hooks in `~/.gemini/settings.json` ein (fremde Einträge bleiben, vorher entsteht eine Sicherung).
+- **Wie es läuft:** Gemini CLI kennt nur Hooks, die ein Programm starten (keine http-Hooks). Es startet `hooks/gemini_status.py` mit Python, das das Ereignis an `/gemini-hook` der Phonebox schickt. Zuordnung: `BeforeAgent` = neue Aufgabe, `BeforeTool` = Aktion, `Notification` (ToolPermission) = „braucht dich“, `AfterAgent` = fertig. Prüfen: `python hooks/gemini_status.py --test`, Protokoll in `daten/gemini-hook.log`.
+- **Anweisungen vom Handy:** Sie gehen zu Beginn einer neuen Aufgabe (`BeforeAgent`, Zusatztext) und beim Ende eines Zuges mit. Dort lehnt der Hook die Antwort mit Grund ab (`decision: deny`), und Gemini bekommt den Text als neue Eingabe. Mitten in der Arbeit (`BeforeTool`) gibt es das bei Gemini nicht. Nach dem Fertigwerden wartet die Phonebox 2 Minuten (`PHONEBOX_GEMINI_HALTEN_S`) auf eine Anweisung, kürzer als bei Claude, weil Gemini CLI in dieser Zeit auf den Hook wartet. Den Claude-Mod (Antworten, Plan-Grenzen) gibt es für Gemini nicht.
+- **Hinweis:** Die Hook-Namen und Formate stammen aus der Dokumentation von Gemini CLI (`docs/hooks/reference.md`). Gegen ein echtes Gemini CLI auf Windows ist das noch nicht erprobt, die Tests simulieren die Ereignisse.
 
 ## Anweisungen vom Handy an Claude (v23)
 
