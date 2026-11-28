@@ -8,15 +8,30 @@ const GRUND_ENTFERNT = 'removed from the queue'
 let offen = null
 let laeuft = false
 
-async function senden($, text) {
-  let grund = ''
+async function versuchen($, text, alsNutzer) {
   try {
-    const r = await $.prompt.submit({ text, asUser: true })
-    grund = (r && r.drop) || ''
+    const r = await $.prompt.submit(alsNutzer ? { text, asUser: true } : { text })
+    return { grund: (r && r.drop) || '', fehler: '' }
   } catch (f) {
-    grund = String((f && f.message) || f)
+    return { grund: '', fehler: String((f && f.message) || f) }
   }
-  if (grund.includes(GRUND_GESTOPPT) || grund.includes(GRUND_ENTFERNT)) offen = text
+}
+
+async function senden($, text) {
+  // Erst als eigene Nachricht des Nutzers; klappt das nicht, mit dem Hinweis "von der Phonebox"
+  let e = await versuchen($, text, true)
+  if ((e.grund || e.fehler) && !(e.grund + e.fehler).includes(GRUND_GESTOPPT) && !(e.grund + e.fehler).includes(GRUND_ENTFERNT)) {
+    $.ui.log('Anweisung vom Handy: erster Versuch fehlgeschlagen (' + (e.grund || e.fehler).slice(0, 120) + '), zweiter Versuch ...')
+    e = await versuchen($, 'Nachricht vom Handy des Nutzers (über die Phonebox): ' + text, false)
+  }
+  const grund = e.grund || e.fehler
+  if (!grund) return
+  if (grund.includes(GRUND_GESTOPPT) || grund.includes(GRUND_ENTFERNT)) {
+    offen = text
+    $.ui.log('Anweisung vom Handy wartet: Die Sitzung wurde gestoppt. Sie wird nach dem nächsten Zug zugestellt.')
+  } else {
+    $.ui.log('Anweisung vom Handy konnte nicht zugestellt werden: ' + grund.slice(0, 200))
+  }
 }
 
 export function register(on) {
