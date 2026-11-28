@@ -177,3 +177,5 @@ Einmal einrichten. Im Dialog „Marketplace hinzufügen“ der Desktop-App genü
 ```
 
 Sobald der Mod verbunden ist, zeigt die Diagnose in /admin „Mod aktiv“, und die Hook-Wege halten sich zurück. Das Textfeld muss weiterhin in /admin eingeschaltet sein. Der Mod läuft ohne Sandbox mit deinen Rechten; er ist klein und im Ordner einsehbar. Nach Esc oder Stopp in Claude wird eine Anweisung nach dem nächsten Zug erneut zugestellt.
+
+Ab v29 (Mod 0.2.0) erscheint Claudes letzte Antwort im Claude-Fenster am Handy („Antwort von Claude“, höchstens 4000 Zeichen, nur im Arbeitsspeicher, nur für Administratoren, nur bei eingeschalteter Funktion). Der Mod meldet sie am Ende jedes Zuges an die Phonebox auf dem PC.

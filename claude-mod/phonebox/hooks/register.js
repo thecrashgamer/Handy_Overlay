@@ -66,6 +66,18 @@ export function register(on) {
   })
 
   on('turn.complete', async ($, e, next) => {
+    // Claudes Antwort ans Handy melden (nur Hauptgespraech, nicht abgebrochene Zuege)
+    if (!e.agentId && !e.isAborted && e.answer) {
+      try {
+        await $.http.fetch(BASIS + '/api/claude/mod/antwort', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-phonebox': '1' },
+          body: JSON.stringify({ text: String(e.answer).slice(0, 20000) }),
+        })
+      } catch (_) {
+        // Phonebox aus: nicht schlimm
+      }
+    }
     if (offen !== null && !e.agentId) {
       const t = offen
       offen = null

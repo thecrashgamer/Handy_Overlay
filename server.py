@@ -31,7 +31,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v28 (Mod-Ziel)"
+VERSION = "v30 (Signalton)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -78,6 +78,8 @@ class Verboten(Exception):
 
 
 _eingabe_cache = {"an": None}
+claude_antwort = {"text": "", "zeit": 0}  # Claudes letzte Antwort (nur im Arbeitsspeicher, nur fuer Administratoren am Handy)
+ANTWORT_MAX = 4000
 
 
 def eingabe_an():
@@ -143,7 +145,8 @@ def nachricht_bauen(benutzer):
                        "erlaubt": shortcuts.darf_ausloesen(e, r)} for e in shortcut_liste],
         "shortcut": zustand["shortcut"],
         "claude_eingabe": {"an": eingabe_an(), "darf": r["admin"],
-                           "eintraege": eingabe.anzeige() if (r["admin"] and eingabe_an()) else []},
+                           "eintraege": eingabe.anzeige() if (r["admin"] and eingabe_an()) else [],
+                           "antwort": claude_antwort if (r["admin"] and eingabe_an() and claude_antwort["text"]) else None},
         "rueckfrage": {**{k: v for k, v in eigene_frage.items() if k != "von"}, "jetzt": jetzt_ms()} if eigene_frage else None,
     })
 
@@ -531,6 +534,26 @@ async def claude_mod_abholen(ein: ModAbholen, request: Request):
     return {"text": text}
 
 
+class ModAntwort(BaseModel):
+    text: str = Field(default="", max_length=20000)
+
+
+@app.post("/api/claude/mod/antwort")
+async def claude_mod_antwort(ein: ModAntwort, request: Request):
+    """Der Mod meldet hier Claudes Antwort am Ende eines Zuges, damit sie am Handy erscheint. Nur vom PC selbst, nur bei
+    eingeschalteter Funktion; wird nicht gespeichert, nur die letzte Antwort im Arbeitsspeicher."""
+    if not auth.lokal(request):
+        return PlainTextResponse("Nicht erlaubt.", status_code=403)
+    if not eingabe_an():
+        return {}
+    text = ein.text.strip()
+    if not text:
+        return {}
+    claude_antwort.update(text=text[:ANTWORT_MAX] + (" …" if len(text) > ANTWORT_MAX else ""), zeit=jetzt_ms())
+    await an_alle_senden()
+    return {"ok": True}
+
+
 EINGABE_HALTEN_S = float(os.environ.get("PHONEBOX_EINGABE_HALTEN_S", "540"))  # unter dem Hook-Timeout von 600 s
 
 
@@ -643,6 +666,7 @@ async def claude_eingabe_schalten(ein: EingabeSchalter, request: Request):
     _eingabe_cache["an"] = ein.an
     if not ein.an:
         eingabe.leeren()  # nichts Wartendes darf nach dem Ausschalten noch losgehen
+        claude_antwort.update(text="", zeit=0)
     log(f"Admin {b['name']}: Anweisungen an Claude {'eingeschaltet' if ein.an else 'ausgeschaltet'}")
     konten.protokoll("admin", f"Anweisungen vom Handy an Claude {'eingeschaltet' if ein.an else 'ausgeschaltet'}", b, auth.adresse(request))
     await an_alle_senden()
