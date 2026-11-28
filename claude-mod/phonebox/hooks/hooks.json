@@ -1,0 +1,4 @@
+{
+  "description": "Phonebox: Anweisungen vom Handy",
+  "modules": ["./register.js"]
+}

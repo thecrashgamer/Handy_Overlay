@@ -163,3 +163,17 @@ Im Claude-Fenster der Phonebox gibt es ein Textfeld, mit dem du Claude Code auf 
 - **Nach dem Fertigwerden** bleibt Claude noch bis zu 9 Minuten offen (Stop-Hook) und nimmt eine Anweisung vom Handy sofort an. Dafür muss der Hook einmal neu eingerichtet werden (Knopf „Einrichten“ in /admin), damit der Stop-Hook das lange Zeitfenster bekommt.
 - **Grenze:** Ist die 9-Minuten-Frist vorbei, wird er nicht mehr geweckt. Die Anweisung kommt erst, wenn du am PC etwas eingibst. Für echte Fernsteuerung gibt es offiziell „Remote Control“ von Claude Code.
 - Auf echtem Windows/Desktop-App ist das Verhalten noch nicht erprobt.
+
+### Claude-Mod (v26): die zuverlässige Zustellung
+
+Die Hook-Wege oben haben sich auf dem echten PC als unzuverlässig erwiesen, sobald Claude fertig ist. Deshalb gibt es im Ordner `claude-mod` einen kleinen **Claude-Code-Mod** (offizielle Plugin-Art, läuft im Code-Tab der Desktop-App ab Version 2.1.286, nicht in WSL/SSH-Sitzungen). Er fragt alle 2 Sekunden die Phonebox auf **diesem** PC (127.0.0.1:8000) und schickt eine wartende Anweisung als normale Nachricht in die Sitzung, auch wenn Claude gerade fertig ist.
+
+Einmal einrichten (in einer Claude-Code-Sitzung, Pfad zum Ordner `claude-mod` im Phonebox-Ordner anpassen):
+
+```
+/plugin marketplace add C:\Pfad\zu\Handy_Overlay\claude-mod
+/plugin install phonebox@phonebox
+/reload-plugins
+```
+
+Sobald der Mod verbunden ist, zeigt die Diagnose in /admin „Mod aktiv“, und die Hook-Wege halten sich zurück. Das Textfeld muss weiterhin in /admin eingeschaltet sein. Der Mod läuft ohne Sandbox mit deinen Rechten; er ist klein und im Ordner einsehbar. Nach Esc oder Stopp in Claude wird eine Anweisung nach dem nächsten Zug erneut zugestellt.
