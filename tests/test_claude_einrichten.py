@@ -32,7 +32,8 @@ class EinrichtenTests(unittest.TestCase):
             self.assertIsInstance(gruppen, list)
             self.assertEqual(len(gruppen), 1)
             handler = gruppen[0]["hooks"][0]
-            self.assertEqual(handler, {"type": "http", "url": "http://127.0.0.1:8000/claude-hook", "timeout": 3})
+            self.assertEqual(handler, {"type": "http", "url": "http://127.0.0.1:8000/claude-hook",
+                                       "timeout": 600 if ereignis == "Stop" else 3})
         self.assertEqual(h["Notification"][0]["matcher"], ce.BENACHRICHTIGUNG_MATCHER)
         for e in ("UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop"):
             self.assertNotIn("matcher", h[e][0], e + ": Matcher weglassen")

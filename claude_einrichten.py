@@ -52,11 +52,15 @@ def ist_unser(handler):
     return False
 
 
+STOP_TIMEOUT_S = 600  # Standard von Claude Code; die Phonebox haelt hoechstens 540 s
+
+
 def hooks_bauen(modus, port, python_exe=None, skript=None):
     """Die Eintraege, die die Phonebox braucht: {Ereignis: Gruppe}."""
     if modus == "http":
         def handler(ereignis):
-            return {"type": "http", "url": hook_url(port), "timeout": 3}
+            # Stop darf lange offen bleiben: dort wartet die Phonebox auf eine Anweisung vom Handy (siehe server.py)
+            return {"type": "http", "url": hook_url(port), "timeout": STOP_TIMEOUT_S if ereignis == "Stop" else 3}
     elif modus == "python":
         exe = python_ohne_fenster_problem(python_exe)
         skript = str(skript)

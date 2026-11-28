@@ -160,5 +160,6 @@ Im Claude-Fenster der Phonebox gibt es ein Textfeld, mit dem du Claude Code auf 
 - **Standardmäßig aus.** Einschalten nur als Administrator unter /admin (mit Passwort).
 - Nur Administratoren sehen das Feld. Grenzen: 2000 Zeichen, höchstens 5 wartende Anweisungen, 10 pro Minute, Verfall nach 15 Minuten. Alles steht im Aktivitätsprotokoll.
 - **Zustellung** über die Hooks: Claude holt die Anweisung ab, sobald er den nächsten Schritt macht (zusätzlicher Kontext) oder fertig werden will (er arbeitet dann weiter). Abgeholt wird nur von Claude Code auf dem PC selbst, nie von außen.
-- **Grenze:** Wartet Claude schon auf dich, wird er nicht geweckt. Die Anweisung kommt erst, wenn du am PC etwas eingibst. Für echte Fernsteuerung gibt es offiziell „Remote Control“ von Claude Code.
+- **Nach dem Fertigwerden** bleibt Claude noch bis zu 9 Minuten offen (Stop-Hook) und nimmt eine Anweisung vom Handy sofort an. Dafür muss der Hook einmal neu eingerichtet werden (Knopf „Einrichten“ in /admin), damit der Stop-Hook das lange Zeitfenster bekommt.
+- **Grenze:** Ist die 9-Minuten-Frist vorbei, wird er nicht mehr geweckt. Die Anweisung kommt erst, wenn du am PC etwas eingibst. Für echte Fernsteuerung gibt es offiziell „Remote Control“ von Claude Code.
 - Auf echtem Windows/Desktop-App ist das Verhalten noch nicht erprobt.

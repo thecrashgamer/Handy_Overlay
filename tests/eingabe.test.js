@@ -16,7 +16,7 @@ const ok = (n) => console.log('ok  -', n);
 
 (async () => {
   const server = spawn('python3', ['server.py'], { cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT), PHONEBOX_DATEN: TMP, PHONEBOX_EINGABE_VERFALL_S: '4',
+    env: { ...process.env, PHONEBOX_TEST: '1', PHONEBOX_PORT: String(PORT), PHONEBOX_DATEN: TMP, PHONEBOX_EINGABE_VERFALL_S: '4', PHONEBOX_EINGABE_HALTEN_S: '3',
            CLAUDE_CONFIG_DIR: path.join(TMP, 'k') }, stdio: 'ignore' });
   await wait(2500);
   const browser = await chromium.launch();
@@ -90,6 +90,22 @@ const ok = (n) => console.log('ok  -', n);
     assert.deepStrictEqual(s2, {}, 'ohne neue Anweisung darf Claude jetzt aufhoeren (keine Endlosschleife)');
     await p.waitForFunction(() => document.getElementById('cl-titel').textContent === 'Claude ist fertig');
     ok('Am Ende des Zuges laesst eine wartende Anweisung Claude weiterarbeiten (nicht "fertig"), ohne neue Anweisung endet er');
+
+    // ---- Claude ist schon fertig: Stop bleibt offen und wartet auf eine Anweisung vom Handy
+    const t0 = Date.now();
+    const warten = hook({ hook_event_name: 'Stop', cwd: '/x/proj', stop_hook_active: false });
+    await p.waitForFunction(() => document.getElementById('cl-titel').textContent === 'Claude ist fertig');
+    await wait(700);
+    await senden(adminCtx, 'Nachträglich vom Handy');
+    const geweckt = await warten;
+    assert.strictEqual(geweckt.decision, 'block');
+    assert.ok(geweckt.reason.includes('Nachträglich vom Handy'));
+    assert.ok(Date.now() - t0 < 2800, 'sofort nach dem Senden, nicht erst nach Ablauf');
+    await p.waitForFunction(() => document.getElementById('cl-titel').textContent === 'Claude arbeitet');
+    const t1 = Date.now();
+    assert.deepStrictEqual(await hook({ hook_event_name: 'Stop', cwd: '/x/proj', stop_hook_active: true }), {});
+    assert.ok(Date.now() - t1 >= 2500, 'ohne Anweisung wartet Stop bis zum Ende des Zeitfensters');
+    ok('Ist Claude schon fertig, bleibt Stop offen: eine Anweisung vom Handy weckt ihn sofort, sonst endet das Fenster');
 
     // ---- Mehrere zusammen, in Reihenfolge; UserPromptSubmit
     await senden(adminCtx, 'erstens'); await senden(adminCtx, 'zweitens');
