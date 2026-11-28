@@ -598,7 +598,7 @@
       (e.hinweise || []).forEach(function (t) { hinweise.push(t); });
 
       eingabeAn = !!d.eingabe_an;
-      el("cl-eingabe-stand").textContent = eingabeAn ? "(eingeschaltet" + (d.eingabe_wartend ? ", " + d.eingabe_wartend + " wartend" : "") + ")" : "(ausgeschaltet)";
+      el("cl-eingabe-stand").textContent = eingabeAn ? "(eingeschaltet" + (d.eingabe_wartend ? ", " + d.eingabe_wartend + " wartend" : "") + (d.mod_aktiv ? ", Claude-Mod verbunden" : ", Claude-Mod nicht verbunden") + ")" : "(ausgeschaltet)";
       el("cl-eingabe-knopf").textContent = eingabeAn ? "Ausschalten" : "Einschalten";
       var m = el("cl-meldungen");
       if (!d.anzahl) {
