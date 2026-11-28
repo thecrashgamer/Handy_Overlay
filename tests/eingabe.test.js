@@ -68,6 +68,22 @@ const ok = (n) => console.log('ok  -', n);
     assert.match(await p.textContent('#cl-efehler'), /Schreib erst etwas/);
     ok('Senden: Text erscheint als "wartet auf Claude", leeres Feld wird abgelehnt');
 
+    // ---- Claude-Mod: holt Anweisungen selbst ab, nur vom PC, und die Hook-Wege treten dann zurueck
+    const abholen = (kopf = {}) => pc.post(URL + '/api/claude/mod/abholen', { headers: { 'X-Phonebox': '1', ...kopf }, data: { session_id: 's1', cwd: '/x' } });
+    assert.strictEqual((await abholen({ 'X-Forwarded-For': '203.0.113.7' })).status(), 403, 'von aussen nicht');
+    const m1 = await (await abholen()).json();
+    assert.strictEqual(m1.text, 'Mach den Knopf gruen');
+    assert.deepStrictEqual(await (await abholen()).json(), {}, 'nur einmal');
+    await senden(adminCtx, 'nur fuer den Mod');
+    assert.deepStrictEqual(await hook({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: {} }), {}, 'mit Mod keine Uebergabe ueber Hooks');
+    const tm = Date.now();
+    assert.deepStrictEqual(await hook({ hook_event_name: 'Stop', cwd: '/x' }), {});
+    assert.ok(Date.now() - tm < 1500, 'mit Mod haelt Stop nicht offen');
+    assert.strictEqual((await (await abholen()).json()).text, 'nur fuer den Mod');
+    await wait(10600);  // Herzschlag des Mods laeuft ab: die Hook-Wege gelten wieder
+    await senden(adminCtx, 'Mach den Knopf gruen');
+    ok('Mod: holt Anweisungen nur vom PC ab, genau einmal; solange er verbunden ist, uebergeben die Hooks nichts und Stop wartet nicht');
+
     // ---- Uebergabe waehrend der Arbeit (PreToolUse -> additionalContext)
     const a1 = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'a.py' }, cwd: '/x/proj' });
     assert.strictEqual(a1.hookSpecificOutput.hookEventName, 'PreToolUse');
@@ -124,6 +140,7 @@ const ok = (n) => console.log('ok  -', n);
     ok('Wartende Anweisungen bekommt nur Claude Code auf dem PC selbst, nie Anfragen von aussen');
 
     // ---- Zurueckziehen, Grenzen, Verfall
+    await wait(61000);  // die Bremse (10 pro Minute) hat bis hierher schon einiges gezaehlt
     const w = await (await senden(adminCtx, 'doch nicht')).json();
     await p.waitForSelector('#cl-eliste button');
     await p.click('#cl-eliste button');

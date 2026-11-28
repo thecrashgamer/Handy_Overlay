@@ -31,7 +31,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v25 (Claude-Eingabe weckt)"
+VERSION = "v26 (Claude-Mod)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -453,7 +453,8 @@ async def claude_hook(request: Request):
     quelle = auth.adresse(request)
     # Wartende Anweisungen vom Handy gibt es nur an Claude Code auf dem PC selbst, nie an angemeldete Browser aus dem WLAN
     antwort, uebergeben = ({}, None)
-    if auth.lokal(request):
+    mod_da = mod_aktiv()  # Ist der Mod in Claude Code verbunden, holt er die Anweisungen selbst ab (zuverlaessiger)
+    if auth.lokal(request) and not mod_da:
         antwort, uebergeben = eingabe_uebergabe(ereignis)
     if uebergeben and ereignis == "Stop":  # Claude arbeitet weiter: nicht "fertig" melden und nicht piepen
         meldung = {"status": "arbeitet", "aktion": "Anweisung vom Handy: " + claude_ereignisse.kurz(uebergeben, 50),
@@ -463,7 +464,7 @@ async def claude_hook(request: Request):
     else:
         meldung["projekt"] = meldung.get("projekt", "")[:200]
         await claude_verarbeiten(ClaudeMeldung(**meldung, ereignis=ereignis), quelle)
-    if not uebergeben and ereignis == "Stop" and auth.lokal(request) and eingabe_an():
+    if not uebergeben and ereignis == "Stop" and auth.lokal(request) and eingabe_an() and not mod_da:
         # Claude ist fertig: kurz offen bleiben und auf eine Anweisung vom Handy warten (Claude Code wartet auf diese Antwort)
         antwort, uebergeben = await auf_anweisung_warten(request)
         if uebergeben:
@@ -472,6 +473,42 @@ async def claude_hook(request: Request):
     if uebergeben:
         await an_alle_senden()
     return JSONResponse(antwort)
+
+
+mod_sitzungen = {}  # session_id -> {"cwd", "zeit"}: Herzschlag des Claude-Mods
+MOD_FRIST_S = 10
+
+
+def mod_aktiv():
+    jetzt = time.time()
+    for sid in [k for k, v in mod_sitzungen.items() if jetzt - v["zeit"] > 60]:
+        del mod_sitzungen[sid]
+    return any(jetzt - v["zeit"] <= MOD_FRIST_S for v in mod_sitzungen.values())
+
+
+class ModAbholen(BaseModel):
+    session_id: str = Field(default="", max_length=100)
+    cwd: str = Field(default="", max_length=300)
+
+
+@app.post("/api/claude/mod/abholen")
+async def claude_mod_abholen(ein: ModAbholen, request: Request):
+    """Der Mod in Claude Code fragt hier regelmaessig nach einer Anweisung vom Handy. Nur vom PC selbst (nie von aussen).
+    Er schickt sie als Nachricht in die Sitzung; das funktioniert auch, wenn Claude gerade fertig ist."""
+    if not auth.lokal(request):
+        return PlainTextResponse("Nicht erlaubt.", status_code=403)
+    sid = ein.session_id or "unbekannt"
+    if len(mod_sitzungen) < 50 or sid in mod_sitzungen:
+        mod_sitzungen[sid] = {"cwd": ein.cwd[:300], "zeit": time.time()}
+    if not eingabe_an():
+        return {}
+    text = eingabe.abholen(jetzt_ms())
+    if text is None:
+        return {}
+    log(f"Anweisung an Claude uebergeben (ueber den Mod, {len(text)} Zeichen)")
+    konten.protokoll("claude", "Anweisung an Claude übergeben (über den Mod)")
+    await an_alle_senden()
+    return {"text": text}
 
 
 EINGABE_HALTEN_S = float(os.environ.get("PHONEBOX_EINGABE_HALTEN_S", "540"))  # unter dem Hook-Timeout von 600 s
@@ -634,7 +671,7 @@ async def claude_diagnose(request: Request):
     if fehler:
         return fehler
     return {**claude_diag, "jetzt": jetzt_ms(), "status": zustand["claude"]["status"], "port": PORT,
-            "eingabe_an": eingabe_an(), "eingabe_wartend": len(eingabe.wartende()),
+            "eingabe_an": eingabe_an(), "mod_aktiv": mod_aktiv(), "eingabe_wartend": len(eingabe.wartende()),
             "einrichtung": claude_einrichten.pruefen(PORT)}
 
 
