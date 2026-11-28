@@ -1,6 +1,6 @@
-# Phonebox – iPhone 6s als Spotify-Steuerung
+# Phonebox – iPhone 6s als Musik-Steuerung (Spotify / YouTube Music)
 
-Ein Python-Server am Windows-PC steuert Spotify (Desktop-App) über die Windows-Mediensteuerung. Das iPhone öffnet im gleichen WLAN eine Webseite mit Albumcover, Titel, Künstler, Tasten (Play/Pause, Weiter, Zurück), Lautstärke-Regler und Claude-Status. Über die Taste unten rechts wechselst du zur Extras-Ansicht mit Uhr, CPU- und RAM-Anzeige und Shortcut-Tasten.
+Ein Python-Server am Windows-PC steuert Spotify (Desktop-App) oder YouTube Music über die Windows-Mediensteuerung. Das iPhone öffnet im gleichen WLAN eine Webseite mit Albumcover, Titel, Künstler, Tasten (Play/Pause, Weiter, Zurück), Lautstärke-Regler und Claude-Status. Über die Taste unten rechts wechselst du zur Extras-Ansicht mit Uhr, CPU- und RAM-Anzeige und Shortcut-Tasten.
 
 ## Einrichten (Windows)
 
@@ -137,7 +137,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | Datei | Inhalt |
 |---|---|
 | `server.py` | Webserver, WebSocket, Claude-Endpunkt |
-| `medien.py` | Spotify, Cover und Lautstärke (Windows) bzw. Fake-Daten (Test) |
+| `medien.py` | Spotify/YouTube Music, Cover und Lautstärke (Windows) bzw. Fake-Daten (Test) |
 | `shortcuts.py`, `shortcuts.json` | Shortcut-Logik, Prüfung und Vorlage |
 | `admin.py`, `admin.html` | Admin-Bereich für die Shortcuts |
 | `aktivitaet.html` | Aktivitätsprotokoll |
@@ -154,6 +154,14 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `claude_ereignisse.py`, `claude_einrichten.py` | Auswertung der Claude-Ereignisse, Eintragen in die settings.json |
 | `gemini_ereignisse.py`, `gemini_einrichten.py` | dasselbe für Gemini CLI (`~/.gemini/settings.json`) |
 | `tests/` | UI-Test und Shortcut-Tests |
+
+## Spotify oder YouTube Music
+
+In der Musik-Ansicht gibt es oben zwei Knöpfe: **Spotify** und **YT Music**. Ein Tipp wechselt die Quelle für alle Geräte; sie bleibt nach einem Neustart gespeichert und steht im Aktivitätsprotokoll. Wer kein Musik-Recht hat, kann nicht wechseln.
+
+- **Wie die App gefunden wird:** Die Phonebox sucht in der Windows-Mediensteuerung. Spotify erkennt sie am Namen. YouTube Music zuerst als eigene App (Name enthält „youtube“ oder „ytmusic“), sonst im **Browser** (Chrome, Edge, Firefox, Brave, Opera, Vivaldi, auch als installierte Web-App). Gibt es mehrere Treffer, gewinnt die, die gerade spielt.
+- **Grenze:** Im Browser lässt sich der Tab nicht erkennen. Läuft dort daneben anderes (z. B. ein YouTube-Video), kann die Phonebox das erwischen. Am zuverlässigsten ist YouTube Music als eigene Web-App oder Desktop-App.
+- Tasten, Zeitleiste, Cover und Lautstärke funktionieren wie bei Spotify, soweit die jeweilige App sie in Windows meldet.
 
 ## Gemini CLI statt Claude Code
 
