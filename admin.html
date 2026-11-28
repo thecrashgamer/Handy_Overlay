@@ -63,6 +63,8 @@
   .system input[type=password] { flex: 1 1 180px; }
   .upd-ergebnis { margin-top: 10px; font-size: 14px; line-height: 1.45; }
   .upd-neu { color: #7ee2a0; font-weight: bold; }
+  #upd-banner { display: block; position: sticky; top: 0; z-index: 10; margin: 0 0 12px; padding: 12px 14px; border-radius: 10px;
+                background: #1db954; color: #000; font-weight: bold; text-decoration: none; text-align: center; }
   #upd-log { background: #0c0c0c; color: #9a9a9a; border-radius: 8px; padding: 10px; font-size: 12px; max-height: 190px;
              overflow: auto; white-space: pre-wrap; word-break: break-word; margin-top: 10px; }
   #upd-fortschritt { margin-top: 10px; color: #f5a623; }
@@ -72,6 +74,7 @@
 </head>
 <body>
 <div class="seite">
+  <a id="upd-banner" href="#system" hidden></a>
   <div class="kopf">
     <h1>Shortcuts</h1>
     <div class="links"><a href="/">&larr; Phonebox</a><a href="/konto">Konto</a></div>
@@ -707,6 +710,18 @@
     m.className = "meldung" + (text ? " " + art : "");
   }
 
+  // Grüner Balken ganz oben, sobald es eine neuere Version gibt (nicht während ein Update läuft)
+  function bannerZeigen(a) {
+    var b = el("upd-banner");
+    b.hidden = !(a && a.neu) || updateLaeuft;
+    if (!b.hidden) b.textContent = "Neue Version verfügbar: " + a.neueste + " (du hast " + a.installiert + "). Tippen zum Aktualisieren.";
+  }
+
+  // Stilles Nachfragen im Hintergrund (der Server fragt GitHub höchstens alle 5 Minuten): Fehler stören nicht
+  function updateStill() {
+    anfrage("GET", "/api/update/pruefen").then(bannerZeigen).catch(function () {});
+  }
+
   function updatePruefen(neu) {
     updMeldung("");
     el("upd-pruefen").disabled = true;
@@ -723,6 +738,7 @@
       }
       el("upd-aktion").hidden = false;
       el("upd-start").textContent = a.neu ? "Jetzt aktualisieren" : "Trotzdem neu installieren";
+      bannerZeigen(a);
     }).catch(function (f) {
       el("upd-ergebnis").textContent = "";
       updMeldung(f.message, "fehler");
@@ -745,6 +761,7 @@
   // Waehrend der Server neu startet, antwortet er kurz nicht: das ist normal und kein Fehler
   function updateBeobachten() {
     updateLaeuft = true;
+    el("upd-banner").hidden = true;
     el("upd-fortschritt").hidden = false;
     el("upd-log").hidden = false;
     el("upd-start").disabled = true;
@@ -828,6 +845,8 @@
   el("pw").addEventListener("keydown", function (ev) { if (ev.key === "Enter" && !el("speichern").disabled) speichern(); });
   laden();
   updateStartAnsicht();
+  updateStill();
+  setInterval(updateStill, 10 * 60 * 1000);
   claudeDiagnose();
   setInterval(claudeDiagnose, 3000);
 </script>

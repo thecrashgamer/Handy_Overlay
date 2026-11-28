@@ -106,10 +106,14 @@ async function bereit(timeout = 30000) {
     p.on('pageerror', (e) => jsFehler.push(e.message));
     await p.goto(URL + '/admin');
     await p.waitForFunction((v) => document.getElementById('upd-installiert').textContent === v, ALT);
+    // Grüner Balken ganz oben, ohne dass man etwas anklickt
+    await p.waitForFunction(() => { const b = document.getElementById('upd-banner'); return !b.hidden && /Neue Version verfügbar: v99/.test(b.textContent); });
+    assert.ok((await p.$eval('#upd-banner', (b) => getComputedStyle(b).backgroundColor)).includes('29, 185, 84'), 'der Balken muss gruen sein');
+    assert.ok((await p.$eval('#upd-banner', (b) => b.getBoundingClientRect().top)) < 20, 'der Balken muss ganz oben stehen');
     await p.click('#upd-pruefen');
     await p.waitForFunction(() => document.getElementById('upd-ergebnis').textContent.includes('Neue Version verfügbar: v99 (Testupdate)'));
     assert.ok(await p.isVisible('#upd-aktion'));
-    ok('"Nach Updates suchen" findet die neue Version');
+    ok('Der gruene Balken oben zeigt die neue Version von selbst; "Nach Updates suchen" findet sie ebenfalls');
 
     // ---- Falsches Passwort aendert nichts
     p.once('dialog', (d) => d.accept());
@@ -148,6 +152,7 @@ async function bereit(timeout = 30000) {
     await p.waitForFunction(() => document.getElementById('upd-installiert').textContent === 'v99 (Testupdate)');
     await p.click('#upd-pruefen');
     await p.waitForFunction(() => /neueste Version \(v99/.test(document.getElementById('upd-ergebnis').textContent));
+    assert.ok(await p.$eval('#upd-banner', (b) => b.hidden), 'ohne neue Version darf kein Balken stehen');
     const pidA = pidAmPort(PORT);
     p.once('dialog', (d) => d.accept());
     await p.fill('#upd-pw', PW);
