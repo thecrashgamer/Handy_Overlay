@@ -168,7 +168,7 @@ Im Claude-Fenster der Phonebox gibt es ein Textfeld, mit dem du Claude Code auf 
 
 Die Hook-Wege oben haben sich auf dem echten PC als unzuverlässig erwiesen, sobald Claude fertig ist. Deshalb gibt es im Ordner `claude-mod` einen kleinen **Claude-Code-Mod** (offizielle Plugin-Art, läuft im Code-Tab der Desktop-App ab Version 2.1.286, nicht in WSL/SSH-Sitzungen). Er fragt alle 2 Sekunden die Phonebox auf **diesem** PC (127.0.0.1:8000) und schickt eine wartende Anweisung als normale Nachricht in die Sitzung, auch wenn Claude gerade fertig ist.
 
-Einmal einrichten (in einer Claude-Code-Sitzung, Pfad zum Ordner `claude-mod` im Phonebox-Ordner anpassen):
+Einmal einrichten. Im Dialog „Marketplace hinzufügen“ der Desktop-App genügt `thecrashgamer/Handy_Overlay` (GitHub), dann das Plugin „phonebox“ installieren. Oder in einer Claude-Code-Sitzung, Pfad zum Ordner `claude-mod` im Phonebox-Ordner anpassen):
 
 ```
 /plugin marketplace add C:\Pfad\zu\Handy_Overlay\claude-mod
