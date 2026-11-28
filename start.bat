@@ -3,12 +3,44 @@ chcp 65001 >nul
 cd /d "%~dp0"
 echo === Phonebox einrichten ===
 
-where python >nul 2>nul
+python --version >nul 2>nul
+if not errorlevel 1 goto python_ok
+
+echo Python wurde nicht gefunden.
+set "ANTWORT="
+set /p ANTWORT="Python 3.12 jetzt automatisch installieren? (j/n): "
+if /i "%ANTWORT%"=="j" goto python_install
+if /i "%ANTWORT%"=="y" goto python_install
+if /i "%ANTWORT%"=="ja" goto python_install
+if /i "%ANTWORT%"=="yes" goto python_install
+echo Abgebrochen. Bitte Python von python.org installieren und "Add Python to PATH" anhaken.
+pause
+exit /b 1
+
+:python_install
+where winget >nul 2>nul
 if errorlevel 1 (
-  echo Python wurde nicht gefunden. Bitte von python.org installieren und "Add Python to PATH" anhaken.
+  echo winget ist nicht verfuegbar. Bitte Python von python.org installieren und "Add Python to PATH" anhaken.
   pause
   exit /b 1
 )
+winget install -e --id Python.Python.3.12 --scope user --accept-package-agreements --accept-source-agreements
+if errorlevel 1 (
+  echo Die Python-Installation ist fehlgeschlagen.
+  pause
+  exit /b 1
+)
+for /f "delims=" %%p in ('powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path','User') + ';' + [Environment]::GetEnvironmentVariable('Path','Machine')"') do set "PATH=%%p;%PATH%"
+python --version >nul 2>nul
+if errorlevel 1 (
+  echo Python ist installiert, wird in diesem Fenster aber noch nicht gefunden.
+  echo Bitte dieses Fenster schliessen und start.bat noch einmal starten.
+  pause
+  exit /b 1
+)
+
+:python_ok
+for /f "delims=" %%v in ('python --version') do echo Gefunden: %%v
 
 echo Installiere Pakete ...
 python -m pip install -r requirements.txt
