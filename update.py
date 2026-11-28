@@ -295,7 +295,8 @@ def neueste_version(quelle=QUELLE_STANDARD):
                     return {"version": treffer.group(1) if treffer else "unbekannt", "aenderung": ""}
         raise UpdateFehler("In der ZIP-Datei fehlt server.py.")
     try:
-        anfrage = urllib.request.Request(VERSION_URL, headers={"User-Agent": "phonebox-update"})
+        anfrage = urllib.request.Request(f"{VERSION_URL}?nocache={int(time.time())}",  # raw.githubusercontent cached bis ~5 Min: eindeutige URL umgeht das
+                                          headers={"User-Agent": "phonebox-update", "Cache-Control": "no-cache"})
         with urllib.request.urlopen(anfrage, timeout=10) as antwort:
             text = antwort.read(400_000).decode("utf-8", "replace")
     except Exception as fehler:
