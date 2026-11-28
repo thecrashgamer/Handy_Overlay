@@ -70,7 +70,7 @@ fs.writeFileSync(SETTINGS, JSON.stringify({ model: 'opus', hooks: { SessionStart
     assert.strictEqual(d.model, 'opus');
     assert.deepStrictEqual(d.hooks.SessionStart, [{ hooks: [{ type: 'command', command: 'echo hallo' }] }], 'fremde Hooks muessen bleiben');
     for (const e of ['UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'Notification', 'Stop']) {
-      assert.deepStrictEqual(d.hooks[e].at(-1).hooks[0], { type: 'http', url: `http://127.0.0.1:${PORT}/claude-hook`, timeout: 3 }, e);
+      assert.deepStrictEqual(d.hooks[e].at(-1).hooks[0], { type: 'http', url: `http://127.0.0.1:${PORT}/claude-hook`, timeout: e === "Stop" ? 600 : 3 }, e);
     }
     assert.match(d.hooks.Notification.at(-1).matcher, /permission_prompt/);
     assert.ok(fs.readdirSync(KONFIG).some((f) => f.includes('phonebox-sicherung')), 'Sicherung der alten Datei fehlt');

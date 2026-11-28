@@ -228,7 +228,7 @@
         <textarea id="cl-text" rows="2" maxlength="2000" placeholder="Anweisung an Claude ..." enterkeyhint="send"></textarea>
         <button id="cl-senden" onclick="claudeSenden()">An Claude senden</button>
         <div id="cl-efehler" role="alert"></div>
-        <div class="hinweis" style="font-size:12px;color:#777;margin-top:6px">Claude holt die Anweisung ab, sobald er den nächsten Schritt macht oder fertig wird. Wartet er schon auf dich, kommt sie erst, wenn du am PC etwas eingibst.</div>
+        <div class="hinweis" style="font-size:12px;color:#777;margin-top:6px">Claude holt die Anweisung ab, sobald er den nächsten Schritt macht. Ist er fertig, wartet er noch bis zu 9 Minuten darauf; danach kommt sie erst, wenn du am PC etwas eingibst.</div>
         <div id="cl-eliste"></div>
       </div>
     </div>
@@ -288,7 +288,7 @@
   }
 
   var ws;
-  var SEITE = "v24";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v25";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;

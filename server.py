@@ -31,7 +31,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v24 (Update-Pruefung)"
+VERSION = "v25 (Claude-Eingabe weckt)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -463,9 +463,32 @@ async def claude_hook(request: Request):
     else:
         meldung["projekt"] = meldung.get("projekt", "")[:200]
         await claude_verarbeiten(ClaudeMeldung(**meldung, ereignis=ereignis), quelle)
+    if not uebergeben and ereignis == "Stop" and auth.lokal(request) and eingabe_an():
+        # Claude ist fertig: kurz offen bleiben und auf eine Anweisung vom Handy warten (Claude Code wartet auf diese Antwort)
+        antwort, uebergeben = await auf_anweisung_warten(request)
+        if uebergeben:
+            await claude_verarbeiten(ClaudeMeldung(status="arbeitet", aktion="Anweisung vom Handy: " + claude_ereignisse.kurz(uebergeben, 50),
+                                                   projekt=(meldung or {}).get("projekt", ""), ereignis="Stop"), quelle)
     if uebergeben:
         await an_alle_senden()
     return JSONResponse(antwort)
+
+
+EINGABE_HALTEN_S = float(os.environ.get("PHONEBOX_EINGABE_HALTEN_S", "540"))  # unter dem Hook-Timeout von 600 s
+
+
+async def auf_anweisung_warten(request):
+    """Haelt die Stop-Antwort offen, bis eine Anweisung kommt, die Funktion ausgeschaltet wird, Claude Code abbricht
+    (z. B. weil du am PC weitertippst) oder die Zeit um ist. Gibt (Antwort, Text) zurueck."""
+    ende = time.monotonic() + EINGABE_HALTEN_S
+    while time.monotonic() < ende:
+        if await request.is_disconnected() or not eingabe_an():
+            break
+        antwort, text = eingabe_uebergabe("Stop")
+        if text is not None:
+            return antwort, text
+        await asyncio.sleep(0.5)
+    return {}, None
 
 
 UEBERGABE_TEXT = ("Der Nutzer hat dir gerade über die Phonebox auf seinem Handy folgende Nachricht geschrieben "
