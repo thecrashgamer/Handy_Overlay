@@ -1,7 +1,7 @@
 """Medien-Anbindung der Phonebox.
 
-WindowsMedien spricht mit der echten Windows-Mediensteuerung (Spotify) und
-der Windows-Lautstaerke. TestMedien liefert Fake-Daten, damit sich Server und
+WindowsMedien spricht mit der echten Windows-Mediensteuerung (Spotify oder
+YouTube Music, je nach Auswahl) und der Windows-Lautstaerke. TestMedien liefert Fake-Daten, damit sich Server und
 Oberflaeche auch ohne Windows und Spotify testen lassen (PHONEBOX_TEST=1).
 """
 import asyncio
@@ -13,11 +13,44 @@ from concurrent.futures import ThreadPoolExecutor
 from protokoll import log
 
 
+QUELLEN = {"spotify": "Spotify", "ytmusic": "YouTube Music"}
+# YouTube Music laeuft entweder als eigene App (Name enthaelt "youtube"/"ytmusic") oder im Browser/als Web-App
+YT_APP = ("youtube", "ytmusic")
+BROWSER = ("chrome", "msedge", "edge", "firefox", "brave", "opera", "vivaldi", "arc")
+
+
 def erstellen(test: bool):
     return TestMedien() if test else WindowsMedien()
 
 
-class TestMedien:
+def passende_sitzung(sitzungen, quelle):
+    """Sucht in der Windows-Mediensteuerung die Sitzung der gewaehlten Quelle.
+
+    sitzungen: Liste von (App-Kennung, spielt, Sitzung). Spotify wird an seinem Namen erkannt. YouTube Music zuerst an einer
+    eigenen App, sonst an einem Browser (dort laesst sich der Tab nicht erkennen). Gibt es mehrere, gewinnt die, die gerade spielt.
+    """
+    def beste(treffer):
+        return next((x[2] for x in treffer if x[1]), treffer[0][2]) if treffer else None
+
+    if quelle == "ytmusic":
+        eigene = [x for x in sitzungen if any(k in x[0].lower() for k in YT_APP)]
+        return beste(eigene) or beste([x for x in sitzungen if any(k in x[0].lower() for k in BROWSER)])
+    return beste([x for x in sitzungen if "spotify" in x[0].lower()])
+
+
+class Quelle:
+    """Welche Musik-App gesteuert wird (spotify oder ytmusic). Gilt fuer alle Geraete."""
+    quelle = "spotify"
+
+    def quelle_setzen(self, name):
+        self.quelle = name if name in QUELLEN else "spotify"
+
+
+class TestMedien(Quelle):
+    LIEDER_YT = [
+        ("YT Lied A", "YT-Kuenstler", "#ff0000"),
+        ("YT Lied B", "Video-Band", "#b71c1c"),
+    ]
     LIEDER = [
         ("Testlied Eins", "Test-Band", "#1db954"),
         ("Zweites Lied", "Die Pruefer", "#e91e63"),
@@ -41,9 +74,20 @@ class TestMedien:
         self._pos_basis = max(0.0, min(self.dauer, sekunden))
         self._pos_zeit = time.monotonic()
 
+    def _lieder(self):
+        return self.LIEDER_YT if self.quelle == "ytmusic" else self.LIEDER
+
+    def quelle_setzen(self, name):
+        alt = self.quelle
+        super().quelle_setzen(name)
+        if self.quelle != alt:
+            self.nr = 0
+            self._pos_setzen(0)
+
     async def status(self):
-        titel, kuenstler, _ = self.LIEDER[self.nr]
+        titel, kuenstler, _ = self._lieder()[self.nr]
         return {
+            "quelle": self.quelle,
             "spielt": self.spielt,
             "titel": titel,
             "kuenstler": kuenstler,
@@ -58,10 +102,10 @@ class TestMedien:
             self._pos_setzen(self._pos())  # Stand festhalten, dann umschalten
             self.spielt = not self.spielt
         elif befehl == "weiter":
-            self.nr = (self.nr + 1) % len(self.LIEDER)
+            self.nr = (self.nr + 1) % len(self._lieder())
             self._pos_setzen(0)
         elif befehl == "zurueck":
-            self.nr = (self.nr - 1) % len(self.LIEDER)
+            self.nr = (self.nr - 1) % len(self._lieder())
             self._pos_setzen(0)
         elif befehl.startswith("laut:"):
             self.laut = _prozent(befehl)
@@ -69,7 +113,7 @@ class TestMedien:
             self._pos_setzen(_sekunden(befehl))
 
     async def cover(self):
-        farbe = self.LIEDER[self.nr][2]
+        farbe = self._lieder()[self.nr][2]
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">'
             f'<rect width="300" height="300" fill="{farbe}"/>'
@@ -78,7 +122,7 @@ class TestMedien:
         return svg.encode(), "image/svg+xml"
 
 
-class WindowsMedien:
+class WindowsMedien(Quelle):
     def __init__(self):
         from winrt.windows.media.control import (
             GlobalSystemMediaTransportControlsSessionManager as MediaManager,
@@ -98,13 +142,28 @@ class WindowsMedien:
         # Darum laufen alle Lautstaerke-Aufrufe in einem eigenen Thread.
         self._com = ThreadPoolExecutor(max_workers=1, thread_name_prefix="com")
 
+    def quelle_setzen(self, name):
+        alt = self.quelle
+        super().quelle_setzen(name)
+        if self.quelle != alt:  # Cover und Zeitleiste der anderen App gelten nicht mehr
+            self._cover = None
+            self._cover_fuer = None
+            self._cover_versuche = 0
+            if self._cover_task is not None:
+                self._cover_task.cancel()
+                self._cover_task = None
+
     async def _sitzung(self):
-        """Sucht die laufende Spotify-Sitzung in der Windows-Mediensteuerung."""
+        """Sucht die Sitzung der gewaehlten Musik-App in der Windows-Mediensteuerung."""
         manager = await self._MediaManager.request_async()
-        for sitzung in manager.get_sessions():
-            if "spotify" in sitzung.source_app_user_model_id.lower():
-                return sitzung
-        return None
+        sitzungen = []
+        for s in manager.get_sessions():
+            try:
+                spielt = s.get_playback_info().playback_status == self._Status.PLAYING
+            except Exception:  # eine kaputte Sitzung darf die anderen nicht verdecken
+                spielt = False
+            sitzungen.append((s.source_app_user_model_id, spielt, s))
+        return passende_sitzung(sitzungen, self.quelle)
 
     async def status(self):
         laut = await asyncio.get_running_loop().run_in_executor(self._com, self._laut_lesen)
@@ -114,8 +173,9 @@ class WindowsMedien:
             log("Medien-Code mit Cover-Hintergrundladen aktiv")
         if sitzung is None:
             return {
+                "quelle": self.quelle,
                 "spielt": False,
-                "titel": "Spotify ist nicht offen",
+                "titel": f"{QUELLEN[self.quelle]} ist nicht offen",
                 "kuenstler": "",
                 "cover": "",
                 "laut": laut,
@@ -148,6 +208,7 @@ class WindowsMedien:
             hashlib.md5(repr(schluessel).encode()).hexdigest()[:8] if self._cover else ""
         )
         return {
+            "quelle": self.quelle,
             "spielt": spielt,
             "titel": infos.title,
             "kuenstler": infos.artist,

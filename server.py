@@ -1,4 +1,4 @@
-# server.py - Phonebox-Server: Spotify, Lautstaerke und Claude-Status
+# server.py - Phonebox-Server: Spotify/YouTube Music, Lautstaerke und Claude-Status
 import asyncio
 import contextlib
 import json
@@ -46,6 +46,7 @@ DATEN = Path(os.environ.get("PHONEBOX_DATEN", ORDNER / "daten"))  # hier liegen 
 konten = Konten(DATEN / "phonebox.db")
 auth.einrichten(konten, ORDNER)
 medien = medien_modul.erstellen(TEST)
+medien.quelle_setzen(konten.einstellung("musik_quelle", "spotify"))  # Spotify oder YouTube Music, bleibt nach einem Neustart
 gpu_holen, akkus_holen = geraete.erstellen(TEST, leer=os.environ.get("PHONEBOX_TEST_OHNE_GERAETE") == "1")
 clients = set()
 ws_ip = {}  # WebSocket -> Adresse des Geraets, fuers Aktivitaetsprotokoll
@@ -201,7 +202,7 @@ async def aktualisieren():
         neu = await asyncio.wait_for(medien.status(), timeout=5)  # haengt nie ewig
     except Exception as fehler:
         neu = {"spielt": False, "titel": "Fehler: " + (str(fehler) or type(fehler).__name__),
-               "kuenstler": "", "cover": "", "laut": None, "dauer": 0, "position": 0}
+               "kuenstler": "", "cover": "", "laut": None, "dauer": 0, "position": 0, "quelle": medien.quelle}
     system = {"cpu": round(psutil.cpu_percent()), "ram": round(psutil.virtual_memory().percent),
               "gpu": zustand["system"]["gpu"], "akkus": zustand["system"]["akkus"]}
     geaendert = shortcuts_neu_laden() | claude_aufraeumen() | rueckfrage_aufraeumen() | eingabe.aufraeumen(jetzt_ms())
@@ -889,6 +890,15 @@ async def befehl_bearbeiten(befehl, benutzer, ip):
         await shortcut_bestaetigt(befehl, benutzer, ip)
     elif befehl.startswith("gezeigt:"):  # die Seite meldet: Rueckfrage ist zu sehen
         log("Rueckfrage angezeigt auf einer Seite:", befehl)
+    elif befehl.startswith("quelle:"):
+        if not rechte(benutzer)["musik"]:
+            raise Verboten("Musik-Quelle wechseln", "Die Musiksteuerung ist für dein Konto abgeschaltet.")
+        name = befehl.split(":", 1)[1]
+        if name in medien_modul.QUELLEN and name != medien.quelle:
+            medien.quelle_setzen(name)
+            konten.einstellung_setzen("musik_quelle", name)
+            konten.protokoll("musik", f"Musik-Quelle: {medien_modul.QUELLEN[name]}", benutzer, ip)
+            await aktualisieren()
     elif befehl == "abbruch":
         frage = zustand["rueckfrage"]
         if frage and (frage.get("von") == benutzer["id"] or rechte(benutzer)["admin"]):

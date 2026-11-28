@@ -46,6 +46,18 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.waitForFunction(() => document.getElementById('titel').textContent === 'Testlied Eins');
     ok('Zurueck wechselt den Titel');
 
+    // Quelle wechseln: Spotify <-> YouTube Music, bleibt nach dem Neuladen
+    assert.strictEqual(await page.getAttribute('#q-spotify', 'class'), 'aktiv');
+    await page.click('#q-ytmusic');
+    await page.waitForFunction(() => document.getElementById('titel').textContent === 'YT Lied A');
+    assert.match(await page.getAttribute('#q-ytmusic', 'class'), /aktiv/);
+    assert.strictEqual(await page.getAttribute('#q-spotify', 'class'), '');
+    await page.reload();
+    await page.waitForFunction(() => document.getElementById('titel').textContent === 'YT Lied A');
+    await page.click('#q-spotify');
+    await page.waitForFunction(() => document.getElementById('titel').textContent === 'Testlied Eins');
+    ok('Quelle wechselt zwischen Spotify und YouTube Music und bleibt nach dem Neuladen');
+
     // Zeitleiste: laeuft von selbst weiter und springt auf Wunsch
     await page.waitForFunction(() => document.getElementById('dauer').textContent === '3:20');
     const pos1 = Number(await page.inputValue('#zeit'));

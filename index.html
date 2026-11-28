@@ -19,6 +19,11 @@
             gap: 28px; padding: 8px 20px; }
   #info { display: flex; flex-direction: column; align-items: center; min-width: 0; }
   #status { color: #1db954; font-size: 14px; margin-bottom: 8px; }
+  #quelle { display: flex; gap: 6px; margin-bottom: 10px; }
+  #quelle button { width: auto; height: auto; border-radius: 16px; padding: 6px 14px; font-size: 13px; background: #282828; color: #b3b3b3; }
+  #quelle button.aktiv { background: #1db954; color: #000; font-weight: bold; }
+  #quelle button.aktiv.ytmusic { background: #ff3b3b; color: #fff; }
+  #quelle button:disabled { opacity: .5; }
   #cover { width: min(220px, 62vh); height: min(220px, 62vh); border-radius: 8px;
            object-fit: cover; display: none; flex: none; }
   #titel { font-size: 24px; font-weight: bold; max-width: 340px; }
@@ -197,6 +202,10 @@
     <img id="cover" alt="">
     <div id="info">
       <div id="status">Verbinde ...</div>
+      <div id="quelle">
+        <button id="q-spotify" onclick="senden('quelle:spotify')">Spotify</button>
+        <button id="q-ytmusic" class="ytmusic" onclick="senden('quelle:ytmusic')">YT Music</button>
+      </div>
       <div id="titel">-</div>
       <div id="kuenstler"></div>
       <div id="zeitreihe">
@@ -370,11 +379,14 @@
   function rechteZeigen(r) {
     // Ohne Musik-Recht sind Tasten und Regler gesperrt (der Server lehnt die Befehle ohnehin ab)
     var darf = !r || r.musik !== false;
-    ["zurueck", "play", "weiter", "laut", "zeit"].forEach(function (id) { el(id).disabled = !darf; });
+    ["zurueck", "play", "weiter", "laut", "zeit", "q-spotify", "q-ytmusic"].forEach(function (id) { el(id).disabled = !darf; });
     el("ohnemusik").style.display = darf ? "none" : "block";
   }
 
   function musikZeigen(d) {
+    var quelle = d.quelle === "ytmusic" ? "ytmusic" : "spotify";
+    el("q-spotify").className = quelle === "spotify" ? "aktiv" : "";
+    el("q-ytmusic").className = "ytmusic" + (quelle === "ytmusic" ? " aktiv" : "");
     el("titel").textContent = d.titel || "-";
     el("kuenstler").textContent = d.kuenstler || "";
     el("play").innerHTML = d.spielt ? "&#9208;" : "&#9654;";
