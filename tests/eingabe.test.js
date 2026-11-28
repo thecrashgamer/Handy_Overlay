@@ -186,6 +186,26 @@ const ok = (n) => console.log('ok  -', n);
     assert.ok(!(await p.evaluate(() => window.__x)), 'Text wird nie als HTML ausgefuehrt');
     ok('Claudes Antwort erscheint am Handy, nur fuer Administratoren, nur vom PC, nie als HTML');
 
+    // ---- Verbrauch der Plan-Grenzen (5 Stunden, Woche), vom Mod gemeldet, nur fuer Administratoren
+    const nutzung = (limits, kopf = {}) => pc.post(URL + '/api/claude/mod/nutzung', { headers: { 'X-Phonebox': '1', ...kopf }, data: { limits } });
+    const inStd = (h) => Math.floor(Date.now() / 1000) + h * 3600;
+    assert.strictEqual((await nutzung([], { 'X-Forwarded-For': '203.0.113.7' })).status(), 403);
+    assert.ok((await nutzung([{ kind: 'five_hour', prozent: 23.4, reset: inStd(2) }, { kind: 'seven_day', prozent: 71, reset: inStd(72) }])).ok());
+    await p.waitForSelector('#cl-nutzung', { state: 'visible', timeout: 5000 });
+    const nz = await p.textContent('#cl-nutzung');
+    assert.match(nz, /5 Stunden: 23 % verbraucht/);
+    assert.match(nz, /Woche: 71 % verbraucht/);
+    assert.match(nz, /noch 1:5\d Std\.|noch 2:00 Std\./);
+    assert.match(nz, /noch 3 Tage/);
+    assert.ok(await p.isVisible('#cl-nutzung .nz-fuell.mittel'), 'ab 70 % orange');
+    assert.ok(!(await g.isVisible('#cl-nutzung')), 'normale Benutzer sehen den Verbrauch nicht');
+    await nutzung([{ kind: 'five_hour', prozent: 95, reset: inStd(1) }, { kind: 'seven_day', prozent: 10, reset: inStd(-1) }]);
+    await p.waitForFunction(() => /95 % verbraucht/.test(document.getElementById('cl-nutzung').textContent));
+    assert.ok(!/Woche/.test(await p.textContent('#cl-nutzung')), 'ein schon zurueckgesetztes Fenster wird nicht gezeigt');
+    assert.ok(await p.isVisible('#cl-nutzung .nz-fuell.hoch'), 'ab 90 % rot');
+    assert.strictEqual((await nutzung([{ kind: 'unbekannt', prozent: 5, reset: 0 }])).status(), 200);
+    ok('Verbrauch: 5 Stunden und Woche mit Balken und Rest-Zeit, nur fuer Administratoren, zurueckgesetzte Fenster verschwinden');
+
     // ---- Rate-Limit und Ausschalten
     let limit = 0;
     for (let i = 0; i < 12; i++) if ((await senden(adminCtx, 'z' + i)).status() === 429) limit++;

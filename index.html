@@ -143,6 +143,13 @@
   #cl-antwort { margin-bottom: 10px; padding: 8px 10px; background: #1b1b1b; border-radius: 8px; text-align: left; }
   #cl-antwort-kopf { font-size: 12px; color: #7ee2a0; margin-bottom: 4px; }
   #cl-antwort-text { font-size: 14px; color: #ddd; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #cl-nutzung { margin: 10px auto 0; width: 100%; max-width: 360px; text-align: left; }
+  #cl-nutzung .nz { margin-top: 6px; font-size: 12px; color: #b3b3b3; }
+  #cl-nutzung .nz-kopf { display: flex; justify-content: space-between; gap: 8px; }
+  #cl-nutzung .nz-balken { height: 6px; background: #2a2a2a; border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  #cl-nutzung .nz-fuell { height: 100%; background: #1db954; border-radius: 3px; }
+  #cl-nutzung .nz-fuell.mittel { background: #f5a623; }
+  #cl-nutzung .nz-fuell.hoch { background: #ff5a5f; }
   #cl-efehler { color: #ff8a8f; font-size: 13px; margin-top: 6px; min-height: 16px; }
   #cl-eliste { margin-top: 8px; font-size: 13px; color: #b3b3b3; }
   #cl-eliste .zeile { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid #262626; }
@@ -227,6 +234,7 @@
       <div id="cl-status"><span id="cl-punkt"></span><span id="cl-titel">Claude</span></div>
       <div id="cl-zeit"></div>
       <div id="cl-aktion"></div>
+      <div id="cl-nutzung" hidden></div>
       <div id="cl-eingabe" hidden>
         <div id="cl-antwort" hidden><div id="cl-antwort-kopf"></div><div id="cl-antwort-text"></div></div>
         <textarea id="cl-text" rows="2" maxlength="2000" placeholder="Anweisung an Claude ..." enterkeyhint="send"></textarea>
@@ -292,7 +300,7 @@
   }
 
   var ws;
-  var SEITE = "v30";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v31";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -345,6 +353,7 @@
       teil("Zeitleiste", function () { zeitUebernehmen(d); });
       teil("Rechte", function () { rechteZeigen(d.rechte); });
       teil("Claude", function () { claudeZeigen(d.claude || {}); });
+      teil("Claude-Nutzung", function () { claudeNutzungZeigen(d.claude_nutzung); });
       teil("Claude-Eingabe", function () { claudeEingabeZeigen(d.claude_eingabe || {}); });
     };
     ws.onclose = function () {
@@ -524,7 +533,48 @@
 
   // ---- Anweisungen an Claude (nur Administratoren, nur wenn ein Administrator es eingeschaltet hat)
   var eingabeStand = "";
+  var nutzungStand = "";
   var EINGABE_ZUSTAND = { wartet: "wartet auf Claude", uebergeben: "übergeben \u2713", verfallen: "verfallen", zurueckgezogen: "zurückgezogen" };
+
+  function nutzungReset(ms, jetzt) {
+    var rest = Math.max(0, Math.round((ms - jetzt) / 60000));  // Minuten
+    if (rest < 60) return "noch " + rest + " Min.";
+    if (rest < 48 * 60) return "noch " + Math.floor(rest / 60) + ":" + (rest % 60 < 10 ? "0" : "") + (rest % 60) + " Std.";
+    return "noch " + Math.round(rest / 1440) + " Tage";
+  }
+
+  function claudeNutzungZeigen(n) {
+    var box = el("cl-nutzung");
+    var stand = n ? JSON.stringify(n) : "";
+    if (stand === nutzungStand) return;
+    nutzungStand = stand;
+    box.textContent = "";
+    box.hidden = !n;
+    if (!n) return;
+    [["fuenf", "5 Stunden"], ["woche", "Woche"]].forEach(function (x) {
+      var w = n[x[0]];
+      if (!w) return;
+      var zeile = document.createElement("div");
+      zeile.className = "nz";
+      var kopf = document.createElement("div");
+      kopf.className = "nz-kopf";
+      var links = document.createElement("span");
+      links.textContent = x[1] + ": " + Math.round(w.prozent) + " % verbraucht";
+      var rechts = document.createElement("span");
+      rechts.textContent = w.reset ? nutzungReset(w.reset, n.jetzt) : "";
+      kopf.appendChild(links);
+      kopf.appendChild(rechts);
+      var balken = document.createElement("div");
+      balken.className = "nz-balken";
+      var fuell = document.createElement("div");
+      fuell.className = "nz-fuell" + (w.prozent >= 90 ? " hoch" : w.prozent >= 70 ? " mittel" : "");
+      fuell.style.width = Math.max(2, Math.min(100, w.prozent)) + "%";
+      balken.appendChild(fuell);
+      zeile.appendChild(kopf);
+      zeile.appendChild(balken);
+      box.appendChild(zeile);
+    });
+  }
 
   function claudeEingabeZeigen(e) {
     var sichtbar = !!(e.an && e.darf);

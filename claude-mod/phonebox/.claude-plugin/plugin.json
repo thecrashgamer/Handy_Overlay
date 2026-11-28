@@ -1,5 +1,5 @@
 {
   "name": "phonebox",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Holt Anweisungen von der Phonebox auf diesem PC und schickt sie als Nachricht an Claude"
 }

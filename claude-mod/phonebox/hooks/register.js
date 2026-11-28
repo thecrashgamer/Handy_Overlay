@@ -7,6 +7,28 @@ const GRUND_ENTFERNT = 'removed from the queue'
 // Text, der nach einem Abbruch (Esc/Stop) nicht gesendet werden konnte: wird nach dem naechsten Zug erneut versucht
 let offen = null
 let laeuft = false
+let takt = 0
+let letzteNutzung = ''
+
+// Verbrauch der Plan-Grenzen (5 Stunden, Woche) an die Phonebox melden, wenn er sich geaendert hat
+async function nutzungMelden($) {
+  try {
+    const u = await $.session.usage()
+    const liste = (u && u.rateLimits) || []
+    if (!liste.length) return
+    const limits = liste.map((l) => ({ kind: String(l.kind || ''), prozent: Number(l.percentUsed) || 0, reset: Number(l.resetsAt) || 0 }))
+    const stand = JSON.stringify(limits)
+    if (stand === letzteNutzung) return
+    const r = await $.http.fetch(BASIS + '/api/claude/mod/nutzung', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-phonebox': '1' },
+      body: JSON.stringify({ limits }),
+    })
+    if (r.status === 200) letzteNutzung = stand
+  } catch (_) {
+    // nicht schlimm
+  }
+}
 
 async function versuchen($, text, alsNutzer) {
   try {
@@ -41,6 +63,8 @@ export function register(on) {
     try { sid = String(await $.session.id()) } catch (_) {}
     try { cwd = String(await $.session.cwd()) } catch (_) {}
     $.clock.every(2000, async () => {
+      takt += 1
+      if (takt % 15 === 1) nutzungMelden($) // alle 30 Sekunden
       if (laeuft) return
       laeuft = true
       try {
@@ -66,6 +90,7 @@ export function register(on) {
   })
 
   on('turn.complete', async ($, e, next) => {
+    nutzungMelden($)
     // Claudes Antwort ans Handy melden (nur Hauptgespraech, nicht abgebrochene Zuege)
     if (!e.agentId && !e.isAborted && e.answer) {
       try {

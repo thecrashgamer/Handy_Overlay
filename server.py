@@ -31,7 +31,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v30 (Signalton)"
+VERSION = "v31 (Nutzung)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -80,6 +80,20 @@ class Verboten(Exception):
 _eingabe_cache = {"an": None}
 claude_antwort = {"text": "", "zeit": 0}  # Claudes letzte Antwort (nur im Arbeitsspeicher, nur fuer Administratoren am Handy)
 ANTWORT_MAX = 4000
+claude_nutzung = {"fuenf": None, "woche": None, "zeit": 0}  # Verbrauch der Plan-Grenzen, vom Mod gemeldet
+
+
+def nutzung_anzeige():
+    """Nur Fenster, die noch nicht zurueckgesetzt wurden; alte Meldungen (> 6 Std.) gelten nicht mehr."""
+    jetzt = jetzt_ms()
+    if not claude_nutzung["zeit"] or jetzt - claude_nutzung["zeit"] > 6 * 3600 * 1000:
+        return None
+    aus = {}
+    for name in ("fuenf", "woche"):
+        w = claude_nutzung[name]
+        if w and (not w["reset"] or w["reset"] > jetzt):
+            aus[name] = w
+    return {**aus, "zeit": claude_nutzung["zeit"], "jetzt": jetzt} if aus else None
 
 
 def eingabe_an():
@@ -147,6 +161,7 @@ def nachricht_bauen(benutzer):
         "claude_eingabe": {"an": eingabe_an(), "darf": r["admin"],
                            "eintraege": eingabe.anzeige() if (r["admin"] and eingabe_an()) else [],
                            "antwort": claude_antwort if (r["admin"] and eingabe_an() and claude_antwort["text"]) else None},
+        "claude_nutzung": nutzung_anzeige() if r["admin"] else None,
         "rueckfrage": {**{k: v for k, v in eigene_frage.items() if k != "von"}, "jetzt": jetzt_ms()} if eigene_frage else None,
     })
 
@@ -532,6 +547,43 @@ async def claude_mod_abholen(ein: ModAbholen, request: Request):
     konten.protokoll("claude", "Anweisung an Claude übergeben (über den Mod)")
     await an_alle_senden()
     return {"text": text}
+
+
+class NutzungEintrag(BaseModel):
+    kind: str = Field(default="", max_length=40)
+    prozent: float = Field(default=0, ge=0, le=1000)
+    reset: float = Field(default=0, ge=0)
+
+
+class ModNutzung(BaseModel):
+    limits: list[NutzungEintrag] = Field(default_factory=list, max_length=10)
+
+
+def _fenster_name(kind):
+    k = kind.lower().replace("-", "_").replace(" ", "_")
+    if "five" in k or k.startswith("5") or "session" in k or "hour" in k:
+        return "fuenf"
+    if "seven" in k or "week" in k or k.startswith("7") or "day" in k:
+        return "woche"
+    return None
+
+
+@app.post("/api/claude/mod/nutzung")
+async def claude_mod_nutzung(ein: ModNutzung, request: Request):
+    """Der Mod meldet hier, wie viel Prozent der 5-Stunden- und der Wochen-Grenze verbraucht sind. Nur vom PC selbst."""
+    if not auth.lokal(request):
+        return PlainTextResponse("Nicht erlaubt.", status_code=403)
+    neu = {"fuenf": None, "woche": None}
+    for e in ein.limits:
+        name = _fenster_name(e.kind)
+        if name:
+            reset = e.reset * 1000 if 0 < e.reset < 1e11 else e.reset  # Sekunden oder Millisekunden
+            neu[name] = {"prozent": round(min(e.prozent, 100), 1), "reset": int(reset)}
+    if not (neu["fuenf"] or neu["woche"]):
+        return {}
+    claude_nutzung.update(neu, zeit=jetzt_ms())
+    await an_alle_senden()
+    return {"ok": True}
 
 
 class ModAntwort(BaseModel):
