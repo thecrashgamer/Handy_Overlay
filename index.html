@@ -140,6 +140,9 @@
   #cl-senden { margin-top: 8px; width: 100%; height: 44px; border-radius: 10px; background: #1db954; color: #000; font-size: 16px;
                font-weight: bold; }
   #cl-senden:disabled { background: #2a2a2a; color: #777; }
+  #cl-antwort { margin-bottom: 10px; padding: 8px 10px; background: #1b1b1b; border-radius: 8px; text-align: left; }
+  #cl-antwort-kopf { font-size: 12px; color: #7ee2a0; margin-bottom: 4px; }
+  #cl-antwort-text { font-size: 14px; color: #ddd; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   #cl-efehler { color: #ff8a8f; font-size: 13px; margin-top: 6px; min-height: 16px; }
   #cl-eliste { margin-top: 8px; font-size: 13px; color: #b3b3b3; }
   #cl-eliste .zeile { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid #262626; }
@@ -225,6 +228,7 @@
       <div id="cl-zeit"></div>
       <div id="cl-aktion"></div>
       <div id="cl-eingabe" hidden>
+        <div id="cl-antwort" hidden><div id="cl-antwort-kopf"></div><div id="cl-antwort-text"></div></div>
         <textarea id="cl-text" rows="2" maxlength="2000" placeholder="Anweisung an Claude ..." enterkeyhint="send"></textarea>
         <button id="cl-senden" onclick="claudeSenden()">An Claude senden</button>
         <div id="cl-efehler" role="alert"></div>
@@ -288,7 +292,7 @@
   }
 
   var ws;
-  var SEITE = "v28";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v29";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -526,6 +530,13 @@
     var sichtbar = !!(e.an && e.darf);
     el("cl-eingabe").hidden = !sichtbar;
     if (!sichtbar) return;
+    var a = e.antwort;
+    el("cl-antwort").hidden = !a;
+    if (a) {
+      var uhr = new Date(a.zeit);
+      el("cl-antwort-kopf").textContent = "Antwort von Claude \u00b7 " + (uhr.getHours() < 10 ? "0" : "") + uhr.getHours() + ":" + (uhr.getMinutes() < 10 ? "0" : "") + uhr.getMinutes();
+      if (el("cl-antwort-text").textContent !== a.text) el("cl-antwort-text").textContent = a.text;
+    }
     var stand = JSON.stringify(e.eintraege || []);
     if (stand === eingabeStand) return;
     eingabeStand = stand;

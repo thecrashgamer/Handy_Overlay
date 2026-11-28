@@ -171,6 +171,21 @@ const ok = (n) => console.log('ok  -', n);
     await p.waitForFunction(() => /verfallen/.test(document.getElementById('cl-eliste').textContent));
     ok('Eine Anweisung, die zu lange wartet, verfaellt und geht nie spaeter ploetzlich los');
 
+    // ---- Claudes Antwort erscheint am Handy (kommt vom Mod), nur fuer Administratoren
+    const antwort = (kopf = {}, text = 'Hallo! Ich habe den Knopf gruen gemacht.') =>
+      pc.post(URL + '/api/claude/mod/antwort', { headers: { 'X-Phonebox': '1', ...kopf }, data: { text } });
+    assert.strictEqual((await antwort({ 'X-Forwarded-For': '203.0.113.7' })).status(), 403, 'von aussen nicht');
+    assert.ok((await antwort()).ok());
+    await p.waitForSelector('#cl-antwort', { state: 'visible', timeout: 5000 });
+    assert.match(await p.textContent('#cl-antwort-text'), /Knopf gruen gemacht/);
+    assert.match(await p.textContent('#cl-antwort-kopf'), /Antwort von Claude/);
+    assert.ok(!(await g.isVisible('#cl-antwort')), 'normale Benutzer sehen die Antwort nicht');
+    const html = '<img src=x onerror=window.__x=1>';
+    await antwort({}, html);
+    await p.waitForFunction((t) => document.getElementById('cl-antwort-text').textContent === t, html);
+    assert.ok(!(await p.evaluate(() => window.__x)), 'Text wird nie als HTML ausgefuehrt');
+    ok('Claudes Antwort erscheint am Handy, nur fuer Administratoren, nur vom PC, nie als HTML');
+
     // ---- Rate-Limit und Ausschalten
     let limit = 0;
     for (let i = 0; i < 12; i++) if ((await senden(adminCtx, 'z' + i)).status() === 429) limit++;
