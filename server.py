@@ -31,7 +31,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v27 (Mod-Anzeige)"
+VERSION = "v28 (Mod-Ziel)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -451,6 +451,8 @@ async def claude_hook(request: Request):
     ereignis = str(daten.get("hook_event_name", ""))[:40] if isinstance(daten, dict) else ""
     meldung = claude_ereignisse.meldung_aus_ereignis(daten)
     quelle = auth.adresse(request)
+    if isinstance(daten, dict) and isinstance(daten.get("session_id"), str) and auth.lokal(request):
+        letzte_hook["session"], letzte_hook["zeit"] = daten["session_id"][:100], time.time()
     # Wartende Anweisungen vom Handy gibt es nur an Claude Code auf dem PC selbst, nie an angemeldete Browser aus dem WLAN
     antwort, uebergeben = ({}, None)
     mod_da = mod_aktiv()  # Ist der Mod in Claude Code verbunden, holt er die Anweisungen selbst ab (zuverlaessiger)
@@ -475,6 +477,7 @@ async def claude_hook(request: Request):
     return JSONResponse(antwort)
 
 
+letzte_hook = {"session": "", "zeit": 0.0}  # welche Claude-Sitzung zuletzt ein Hook-Ereignis geschickt hat
 mod_sitzungen = {}  # session_id -> {"cwd", "zeit"}: Herzschlag des Claude-Mods
 MOD_FRIST_S = 10
 
@@ -484,6 +487,19 @@ def mod_aktiv():
     for sid in [k for k, v in mod_sitzungen.items() if jetzt - v["zeit"] > 60]:
         del mod_sitzungen[sid]
     return any(jetzt - v["zeit"] <= MOD_FRIST_S for v in mod_sitzungen.values())
+
+
+def mod_ziel():
+    """Die Sitzung, die Anweisungen bekommt: die mit dem juengsten Hook-Ereignis oder die zuletzt geoeffnete, je nachdem, was neuer ist."""
+    jetzt = time.time()
+    frisch = {k: v for k, v in mod_sitzungen.items() if jetzt - v["zeit"] <= MOD_FRIST_S}
+    if len(frisch) < 2:
+        return ""
+    neueste = max(frisch, key=lambda k: frisch[k]["seit"])
+    aktiv = letzte_hook["session"]
+    if aktiv in frisch and letzte_hook["zeit"] >= frisch[neueste]["seit"]:
+        return aktiv
+    return neueste
 
 
 class ModAbholen(BaseModel):
@@ -499,8 +515,12 @@ async def claude_mod_abholen(ein: ModAbholen, request: Request):
         return PlainTextResponse("Nicht erlaubt.", status_code=403)
     sid = ein.session_id or "unbekannt"
     if len(mod_sitzungen) < 50 or sid in mod_sitzungen:
-        mod_sitzungen[sid] = {"cwd": ein.cwd[:300], "zeit": time.time()}
+        mod_sitzungen[sid] = {"cwd": ein.cwd[:300], "zeit": time.time(),
+                              "seit": mod_sitzungen.get(sid, {}).get("seit", time.time())}
     if not eingabe_an():
+        return {}
+    # Mit mehreren offenen Sitzungen bekommt nur die neueste die Anweisung: die zuletzt aktive oder zuletzt geoeffnete
+    if mod_ziel() not in ("", sid):
         return {}
     text = eingabe.abholen(jetzt_ms())
     if text is None:

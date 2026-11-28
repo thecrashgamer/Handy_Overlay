@@ -80,6 +80,18 @@ const ok = (n) => console.log('ok  -', n);
     assert.deepStrictEqual(await hook({ hook_event_name: 'Stop', cwd: '/x' }), {});
     assert.ok(Date.now() - tm < 1500, 'mit Mod haelt Stop nicht offen');
     assert.strictEqual((await (await abholen()).json()).text, 'nur fuer den Mod');
+    // Mehrere Sitzungen: nur die zuletzt aktive bekommt die Anweisung
+    const als = (sid) => pc.post(URL + '/api/claude/mod/abholen', { headers: { 'X-Phonebox': '1' }, data: { session_id: sid, cwd: '/x' } });
+    await als('B');
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'x', cwd: '/x', session_id: 'A' });
+    await als('A');
+    await senden(adminCtx, 'nur fuer A');
+    assert.deepStrictEqual(await (await als('B')).json(), {}, 'die andere Sitzung bekommt nichts');
+    assert.strictEqual((await (await als('A')).json()).text, 'nur fuer A');
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'y', cwd: '/x', session_id: 'B' });
+    await senden(adminCtx, 'nur fuer B');
+    assert.deepStrictEqual(await (await als('A')).json(), {});
+    assert.strictEqual((await (await als('B')).json()).text, 'nur fuer B');
     await wait(10600);  // Herzschlag des Mods laeuft ab: die Hook-Wege gelten wieder
     await senden(adminCtx, 'Mach den Knopf gruen');
     ok('Mod: holt Anweisungen nur vom PC ab, genau einmal; solange er verbunden ist, uebergeben die Hooks nichts und Stop wartet nicht');
