@@ -133,6 +133,21 @@
   #cl-zeit { font-size: 15px; color: #b3b3b3; margin-top: 4px; min-height: 20px;
              font-variant-numeric: tabular-nums; }
   #cl-aktion { font-size: 20px; margin-top: 14px; min-height: 52px; word-break: break-word; }
+  #cl-eingabe { margin-top: 14px; text-align: left; }
+  #cl-text { width: 100%; box-sizing: border-box; background: #1c1c1c; color: #fff; border: 1px solid #333; border-radius: 10px;
+             padding: 10px; font-size: 16px; font-family: inherit; resize: none; }
+  #cl-text:focus { outline: 2px solid #1db954; border-color: transparent; }
+  #cl-senden { margin-top: 8px; width: 100%; height: 44px; border-radius: 10px; background: #1db954; color: #000; font-size: 16px;
+               font-weight: bold; }
+  #cl-senden:disabled { background: #2a2a2a; color: #777; }
+  #cl-efehler { color: #ff8a8f; font-size: 13px; margin-top: 6px; min-height: 16px; }
+  #cl-eliste { margin-top: 8px; font-size: 13px; color: #b3b3b3; }
+  #cl-eliste .zeile { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid #262626; }
+  #cl-eliste .text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cl-eliste .zustand { flex: none; font-size: 12px; }
+  #cl-eliste .zustand.wartet { color: #f5a623; }
+  #cl-eliste .zustand.uebergeben { color: #7ee2a0; }
+  #cl-eliste button { height: auto; width: auto; border-radius: 6px; padding: 2px 8px; font-size: 12px; background: #333; }
   #cl-verlauf { list-style: none; margin: 0; padding: 0; width: 300px; text-align: left;
                 font-size: 14px; color: #b3b3b3; max-height: 100%; overflow: hidden; }
   #cl-verlauf li { padding: 6px 0; border-bottom: 1px solid #282828; white-space: nowrap;
@@ -209,6 +224,13 @@
       <div id="cl-status"><span id="cl-punkt"></span><span id="cl-titel">Claude</span></div>
       <div id="cl-zeit"></div>
       <div id="cl-aktion"></div>
+      <div id="cl-eingabe" hidden>
+        <textarea id="cl-text" rows="2" maxlength="2000" placeholder="Anweisung an Claude ..." enterkeyhint="send"></textarea>
+        <button id="cl-senden" onclick="claudeSenden()">An Claude senden</button>
+        <div id="cl-efehler" role="alert"></div>
+        <div class="hinweis" style="font-size:12px;color:#777;margin-top:6px">Claude holt die Anweisung ab, sobald er den nächsten Schritt macht oder fertig wird. Wartet er schon auf dich, kommt sie erst, wenn du am PC etwas eingibst.</div>
+        <div id="cl-eliste"></div>
+      </div>
     </div>
     <ul id="cl-verlauf"></ul>
   </div>
@@ -266,7 +288,7 @@
   }
 
   var ws;
-  var SEITE = "v22";  // Version dieser Seite; der Server meldet seine eigene
+  var SEITE = "v23";  // Version dieser Seite; der Server meldet seine eigene
   var letzteEingabe = 0;
   var letztesSenden = 0;
   var basisPos = 0, basisZeit = 0, liedDauer = 0, laeuft = false;
@@ -319,6 +341,7 @@
       teil("Zeitleiste", function () { zeitUebernehmen(d); });
       teil("Rechte", function () { rechteZeigen(d.rechte); });
       teil("Claude", function () { claudeZeigen(d.claude || {}); });
+      teil("Claude-Eingabe", function () { claudeEingabeZeigen(d.claude_eingabe || {}); });
     };
     ws.onclose = function () {
       verbunden = false;
@@ -493,6 +516,62 @@
       });
     }
     claudeZeitAnzeigen();
+  }
+
+  // ---- Anweisungen an Claude (nur Administratoren, nur wenn ein Administrator es eingeschaltet hat)
+  var eingabeStand = "";
+  var EINGABE_ZUSTAND = { wartet: "wartet auf Claude", uebergeben: "übergeben \u2713", verfallen: "verfallen", zurueckgezogen: "zurückgezogen" };
+
+  function claudeEingabeZeigen(e) {
+    var sichtbar = !!(e.an && e.darf);
+    el("cl-eingabe").hidden = !sichtbar;
+    if (!sichtbar) return;
+    var stand = JSON.stringify(e.eintraege || []);
+    if (stand === eingabeStand) return;
+    eingabeStand = stand;
+    var liste = el("cl-eliste");
+    liste.textContent = "";
+    (e.eintraege || []).slice().reverse().forEach(function (x) {
+      var zeile = document.createElement("div");
+      zeile.className = "zeile";
+      var text = document.createElement("span");
+      text.className = "text";
+      text.textContent = x.text;
+      var zustand = document.createElement("span");
+      zustand.className = "zustand " + x.status;
+      zustand.textContent = EINGABE_ZUSTAND[x.status] || x.status;
+      zeile.appendChild(text);
+      zeile.appendChild(zustand);
+      if (x.status === "wartet") {
+        var weg = document.createElement("button");
+        weg.textContent = "\u2715";
+        weg.title = "Zurückziehen";
+        weg.onclick = function () { claudeAnfrage("/api/claude/nachricht/zurueckziehen", { id: x.id }); };
+        zeile.appendChild(weg);
+      }
+      liste.appendChild(zeile);
+    });
+  }
+
+  function claudeAnfrage(url, daten) {
+    return fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Phonebox": "1" },
+                        body: JSON.stringify(daten) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.fehler || "Fehler " + r.status);
+        return j;
+      }); })
+      .catch(function (f) { el("cl-efehler").textContent = f.message; throw f; });
+  }
+
+  function claudeSenden() {
+    var feld = el("cl-text"), text = feld.value.trim();
+    if (!text) { el("cl-efehler").textContent = "Schreib erst etwas."; return; }
+    el("cl-efehler").textContent = "";
+    el("cl-senden").disabled = true;
+    claudeAnfrage("/api/claude/nachricht", { text: text })
+      .then(function () { feld.value = ""; })
+      .catch(function () {})
+      .then(function () { el("cl-senden").disabled = false; });
   }
 
   function claudeZeitAnzeigen() {

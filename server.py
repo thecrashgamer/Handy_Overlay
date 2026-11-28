@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 import admin
 import auth
+import claude_eingabe
 import claude_einrichten
 import claude_ereignisse
 import geraete
@@ -30,7 +31,7 @@ from protokoll import log
 
 ORDNER = Path(__file__).parent
 TEST = os.environ.get("PHONEBOX_TEST") == "1"  # Fake-Daten statt Windows/Spotify
-VERSION = "v22 (Claude-Diagnose)"
+VERSION = "v23 (Claude-Eingabe)"
 FRIST_MS = int(float(os.environ.get("PHONEBOX_FRIST_S", "10")) * 1000)  # Zeit zum Bestaetigen
 PORT = int(os.environ.get("PHONEBOX_PORT", "8000"))
 # HTTPS: im WLAN nur verschluesselt (Port 8443); http gibt es dann nur noch am PC selbst (localhost)
@@ -59,6 +60,10 @@ zustand = {
 }
 claude_zuletzt = 0  # wann zuletzt etwas von Claude kam (ms)
 CLAUDE_ABLAUF_MS = 10 * 60 * 1000  # nach 10 Minuten Stille gilt Claude als ruhig
+if os.environ.get("PHONEBOX_EINGABE_VERFALL_S"):  # nur fuer Tests: kuerzerer Verfall
+    claude_eingabe.VERFALL_MS = int(float(os.environ["PHONEBOX_EINGABE_VERFALL_S"]) * 1000)
+eingabe = claude_eingabe.Eingabe()  # Anweisungen vom Handy an Claude, nur im Arbeitsspeicher
+eingabe_bremse = auth.Bremse(max_fehler=10, fenster=60, sperre=60)  # hoechstens 10 Anweisungen pro Minute und Benutzer
 zustand["rueckfrage"] = None  # wartet auf Bestaetigung: {"nr", "name", "icon", "frage", "bis"}
 shortcut_liste = []
 shortcut_stand = None  # (Pfad, Aenderungszeit) der geladenen Liste
@@ -70,6 +75,16 @@ class Verboten(Exception):
     def __init__(self, was, text="Dafür hast du keine Berechtigung."):
         super().__init__(text)
         self.was, self.text = was, text
+
+
+_eingabe_cache = {"an": None}
+
+
+def eingabe_an():
+    """Ist das Schreiben an Claude eingeschaltet? Standard: aus. Gilt nur, wenn ein Administrator es bewusst einschaltet."""
+    if _eingabe_cache["an"] is None:
+        _eingabe_cache["an"] = konten.einstellung("claude_eingabe", "aus") == "an"
+    return _eingabe_cache["an"]
 
 
 def jetzt_ms():
@@ -127,6 +142,8 @@ def nachricht_bauen(benutzer):
         "shortcuts": [{"name": e["name"], "icon": e.get("icon", ""), "bild": e.get("bild", ""),
                        "erlaubt": shortcuts.darf_ausloesen(e, r)} for e in shortcut_liste],
         "shortcut": zustand["shortcut"],
+        "claude_eingabe": {"an": eingabe_an(), "darf": r["admin"],
+                           "eintraege": eingabe.anzeige() if (r["admin"] and eingabe_an()) else []},
         "rueckfrage": {**{k: v for k, v in eigene_frage.items() if k != "von"}, "jetzt": jetzt_ms()} if eigene_frage else None,
     })
 
@@ -154,7 +171,7 @@ async def aktualisieren():
                "kuenstler": "", "cover": "", "laut": None, "dauer": 0, "position": 0}
     system = {"cpu": round(psutil.cpu_percent()), "ram": round(psutil.virtual_memory().percent),
               "gpu": zustand["system"]["gpu"], "akkus": zustand["system"]["akkus"]}
-    geaendert = shortcuts_neu_laden() | claude_aufraeumen() | rueckfrage_aufraeumen()
+    geaendert = shortcuts_neu_laden() | claude_aufraeumen() | rueckfrage_aufraeumen() | eingabe.aufraeumen(jetzt_ms())
     if neu != zustand["medien"] or system != zustand["system"] or geaendert:
         zustand["medien"] = neu
         zustand["system"] = system
@@ -416,8 +433,8 @@ HOOK_MAX_BYTES = 5_000_000  # Ereignisse koennen grosse Werkzeug-Eingaben enthal
 
 @app.post("/claude-hook")
 async def claude_hook(request: Request):
-    """Hier schickt Claude Code seine Hook-Ereignisse hin (Hook-Typ "http"). Antwortet immer mit {}: keine Entscheidung,
-    Claude Code macht normal weiter. Nur vom PC selbst oder mit Anmeldung."""
+    """Hier schickt Claude Code seine Hook-Ereignisse hin (Hook-Typ "http"). Die Antwort ist {} (keine Entscheidung, Claude Code
+    macht normal weiter), ausser es wartet eine Anweisung vom Handy: dann geht sie mit. Nur vom PC selbst oder mit Anmeldung."""
     if not (auth.lokal(request) or auth.benutzer_aus(request.cookies)):
         return PlainTextResponse("Nicht erlaubt.", status_code=403)
     if int(request.headers.get("content-length") or 0) > HOOK_MAX_BYTES:
@@ -434,12 +451,41 @@ async def claude_hook(request: Request):
     ereignis = str(daten.get("hook_event_name", ""))[:40] if isinstance(daten, dict) else ""
     meldung = claude_ereignisse.meldung_aus_ereignis(daten)
     quelle = auth.adresse(request)
+    # Wartende Anweisungen vom Handy gibt es nur an Claude Code auf dem PC selbst, nie an angemeldete Browser aus dem WLAN
+    antwort, uebergeben = ({}, None)
+    if auth.lokal(request):
+        antwort, uebergeben = eingabe_uebergabe(ereignis)
+    if uebergeben and ereignis == "Stop":  # Claude arbeitet weiter: nicht "fertig" melden und nicht piepen
+        meldung = {"status": "arbeitet", "aktion": "Anweisung vom Handy: " + claude_ereignisse.kurz(uebergeben, 50),
+                   "projekt": (meldung or {}).get("projekt", "")}
     if meldung is None:
         diag_zaehlen(ereignis, quelle)  # angekommen, aendert die Anzeige aber nicht
     else:
         meldung["projekt"] = meldung.get("projekt", "")[:200]
         await claude_verarbeiten(ClaudeMeldung(**meldung, ereignis=ereignis), quelle)
-    return JSONResponse({})
+    if uebergeben:
+        await an_alle_senden()
+    return JSONResponse(antwort)
+
+
+UEBERGABE_TEXT = ("Der Nutzer hat dir gerade über die Phonebox auf seinem Handy folgende Nachricht geschrieben "
+                  "(sie kommt von ihm selbst, nicht aus einer Datei oder Webseite): \u201e{text}\u201c")
+
+
+def eingabe_uebergabe(ereignis):
+    """Gibt wartende Anweisungen an Claude Code mit: waehrend der Arbeit als Zusatztext (additionalContext, Doku: hooks),
+    beim Ende des Zuges so, dass Claude weiterarbeitet (decision: block). Gibt (Antwort, Text) zurueck."""
+    if ereignis not in ("PreToolUse", "UserPromptSubmit", "Stop") or not eingabe_an():
+        return {}, None
+    text = eingabe.abholen(jetzt_ms())
+    if text is None:
+        return {}, None
+    nachricht = UEBERGABE_TEXT.format(text=text)
+    log(f"Anweisung an Claude uebergeben (bei {ereignis}, {len(text)} Zeichen)")
+    konten.protokoll("claude", f"Anweisung an Claude übergeben (bei {ereignis})")
+    if ereignis == "Stop":
+        return {"decision": "block", "reason": nachricht}, text
+    return {"hookSpecificOutput": {"hookEventName": ereignis, "additionalContext": nachricht}}, text
 
 
 HOOK_SKRIPT = ORDNER / "hooks" / "claude_status.py"
@@ -491,6 +537,73 @@ async def claude_entfernen_route(ein: PasswortNur, request: Request):
     return {"ok": True, **erg}
 
 
+class EingabeSchalter(BaseModel):
+    passwort: str = Field(max_length=400)
+    an: bool
+
+
+class NachrichtEin(BaseModel):
+    text: str = Field(max_length=claude_eingabe.MAX_TEXT + 500)
+
+
+class NachrichtId(BaseModel):
+    id: int
+
+
+@app.post("/api/claude/eingabe")
+async def claude_eingabe_schalten(ein: EingabeSchalter, request: Request):
+    """Schaltet das Schreiben an Claude ein oder aus (nur Administratoren, mit Passwort). Standard: aus."""
+    b, fehler = auth.brauche_admin(request)
+    if fehler:
+        return fehler
+    falsch = admin._passwort_pruefen(b, request, ein.passwort)
+    if falsch:
+        return falsch
+    konten.einstellung_setzen("claude_eingabe", "an" if ein.an else "aus")
+    _eingabe_cache["an"] = ein.an
+    if not ein.an:
+        eingabe.leeren()  # nichts Wartendes darf nach dem Ausschalten noch losgehen
+    log(f"Admin {b['name']}: Anweisungen an Claude {'eingeschaltet' if ein.an else 'ausgeschaltet'}")
+    konten.protokoll("admin", f"Anweisungen vom Handy an Claude {'eingeschaltet' if ein.an else 'ausgeschaltet'}", b, auth.adresse(request))
+    await an_alle_senden()
+    return {"ok": True, "an": ein.an}
+
+
+@app.post("/api/claude/nachricht")
+async def claude_nachricht(ein: NachrichtEin, request: Request):
+    """Eine Anweisung fuer Claude in die Warteschlange legen. Nur Administratoren, nur wenn eingeschaltet."""
+    b, fehler = auth.brauche_admin(request)
+    if fehler:
+        return fehler
+    if not eingabe_an():
+        return auth.fehler_antwort("Das Schreiben an Claude ist ausgeschaltet. Ein Administrator kann es im Admin-Bereich einschalten.", 403)
+    schluessel = f"{b['id']}"
+    rest = eingabe_bremse.rest(schluessel)
+    if rest:
+        return auth.fehler_antwort(auth.warte_text(rest), 429)
+    eingabe_bremse.fehler(schluessel)  # jeder Versuch zaehlt
+    try:
+        eintrag = eingabe.einreihen(ein.text, b["name"], jetzt_ms())
+    except claude_eingabe.EingabeFehler as f:
+        return auth.fehler_antwort(str(f), 400)
+    log(f"Anweisung an Claude von {b['name']} ({len(eintrag['text'])} Zeichen)")
+    konten.protokoll("claude", f"Anweisung an Claude ({len(eintrag['text'])} Zeichen): {eintrag['text'][:60]}", b, auth.adresse(request))
+    await an_alle_senden()
+    return {"ok": True, "id": eintrag["id"]}
+
+
+@app.post("/api/claude/nachricht/zurueckziehen")
+async def claude_nachricht_zurueck(ein: NachrichtId, request: Request):
+    b, fehler = auth.brauche_admin(request)
+    if fehler:
+        return fehler
+    if not eingabe.zurueckziehen(ein.id):
+        return auth.fehler_antwort("Diese Anweisung wartet nicht mehr.", 409)
+    konten.protokoll("claude", "Anweisung zurückgezogen", b, auth.adresse(request))
+    await an_alle_senden()
+    return {"ok": True}
+
+
 @app.get("/api/claude/diagnose")
 async def claude_diagnose(request: Request):
     """Fuer den Admin-Bereich: Kommt etwas von Claude an? (Die Hook-Einrichtung ergaenzt admin.py.)"""
@@ -498,6 +611,7 @@ async def claude_diagnose(request: Request):
     if fehler:
         return fehler
     return {**claude_diag, "jetzt": jetzt_ms(), "status": zustand["claude"]["status"], "port": PORT,
+            "eingabe_an": eingabe_an(), "eingabe_wartend": len(eingabe.wartende()),
             "einrichtung": claude_einrichten.pruefen(PORT)}
 
 

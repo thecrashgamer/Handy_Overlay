@@ -152,3 +152,13 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | `hooks/` | Python-Variante des Claude-Hooks |
 | `claude_ereignisse.py`, `claude_einrichten.py` | Auswertung der Claude-Ereignisse, Eintragen in die settings.json |
 | `tests/` | UI-Test und Shortcut-Tests |
+
+## Anweisungen vom Handy an Claude (v23)
+
+Im Claude-Fenster der Phonebox gibt es ein Textfeld, mit dem du Claude Code auf dem PC etwas mitteilen kannst.
+
+- **Standardmäßig aus.** Einschalten nur als Administrator unter /admin (mit Passwort).
+- Nur Administratoren sehen das Feld. Grenzen: 2000 Zeichen, höchstens 5 wartende Anweisungen, 10 pro Minute, Verfall nach 15 Minuten. Alles steht im Aktivitätsprotokoll.
+- **Zustellung** über die Hooks: Claude holt die Anweisung ab, sobald er den nächsten Schritt macht (zusätzlicher Kontext) oder fertig werden will (er arbeitet dann weiter). Abgeholt wird nur von Claude Code auf dem PC selbst, nie von außen.
+- **Grenze:** Wartet Claude schon auf dich, wird er nicht geweckt. Die Anweisung kommt erst, wenn du am PC etwas eingibst. Für echte Fernsteuerung gibt es offiziell „Remote Control“ von Claude Code.
+- Auf echtem Windows/Desktop-App ist das Verhalten noch nicht erprobt.
